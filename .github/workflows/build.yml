@@ -28,9 +28,9 @@ jobs:
     - name: Get tag version
       id : version
       run: |
-        if [ ${{ github.event_name }} == 'release' ]; then
+        if [ "${{ github.event_name }}" == "release" ]; then
           echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        elif [ ${{ github.event_name }} == 'pull_request' ]; then
+        elif [ "${{ github.event_name }}" == "pull_request" ]; then
           echo "version=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
         fi
 
