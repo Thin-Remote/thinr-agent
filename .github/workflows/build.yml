@@ -64,7 +64,7 @@ jobs:
       shell: bash
       run: |
         source /etc/bash.bashrc
-        cmake -B /build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_VERSION=${{ needs.build_version.outputs.version }} -DBIN_EXTENSION=ON -DARCH=${{ matrix.target }}
+        cmake -B /build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_VERSION=${{ needs.build_version.outputs.version }} -DBIN_EXTENSION=ON -DARCH=${{ matrix.target }} -DSTATIC=ON
 
     - name: Build
       # Build your program with the given configuration
