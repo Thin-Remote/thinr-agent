@@ -3,11 +3,11 @@ name: Build
 on:
   workflow_dispatch: # manual trigger
   push:
-    branches: [ master, develop ] # build on push
+    branches: [ main, develop ] # build on push
   release:
     types: [ published ] # when a release is created, build and publish bins
   pull_request:
-    branches: [ master,develop ] # when a pull request is opened only build
+    branches: [ mian, develop ] # when a pull request is opened only build
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
