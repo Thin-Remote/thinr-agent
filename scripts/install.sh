@@ -240,6 +240,20 @@ construct_binary_name() {
                 exit 1
                 ;;
         esac
+    elif [ "$OS" = "darwin" ]; then
+        # Map macOS architectures
+        case "$ARCH" in
+            x86_64)
+                echo "${BINARY_NAME}.x86_64-darwin"
+                ;;
+            aarch64)
+                echo "${BINARY_NAME}.arm64-darwin"
+                ;;
+            *)
+                echo "Error: No binary available for macOS architecture: $ARCH"
+                exit 1
+                ;;
+        esac
     else
         echo "${BINARY_NAME}-${OS}-${ARCH}"
     fi

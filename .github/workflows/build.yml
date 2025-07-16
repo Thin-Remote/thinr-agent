@@ -80,10 +80,44 @@ jobs:
 
   # TODO: Install and run
 
+  build_macos:
+    runs-on: [self-hosted, macOS, ARM64]
+    needs: build_version
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ needs.build_version.outputs.version }}
+    
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DBUILD_VERSION=${{ needs.build_version.outputs.version }} \
+          -DENABLE_OPENSSL=ON \
+          -DSTATIC=ON
+    
+    - name: Build
+      run: cmake --build build --config ${{ env.BUILD_TYPE }} --target thinr-agent -- -j$(sysctl -n hw.ncpu)
+    
+    - name: Rename binary with architecture
+      run: |
+        mv build/thinr-agent build/thinr-agent.arm64-darwin
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.MODULE }}-arm64-darwin
+        path: build/${{ env.MODULE }}.arm64-darwin
+        if-no-files-found: error
+        retention-days: 1
+
   upload_to_release: # when tag is created
     if: ${{ github.event_name == 'release' }}
     runs-on: ubuntu-latest
-    needs: [build_version, build]
+    needs: [build_version, build, build_macos]
     strategy:
       fail-fast: false # continues with matrix even if an element fails
       matrix:
@@ -94,7 +128,8 @@ jobs:
           "armv7-linux-musleabihf",
           "aarch64-linux-musl",
           "mips-linux-musl",
-          "mipsel-linux-musl"
+          "mipsel-linux-musl",
+          "arm64-darwin"
         ]
 
     steps:
@@ -114,7 +149,7 @@ jobs:
   # Upload to S3 for CDN distribution
   upload_to_s3:
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, build_macos]
     if: ${{ github.event_name == 'push' || github.event_name == 'release' }}
     
     steps:
