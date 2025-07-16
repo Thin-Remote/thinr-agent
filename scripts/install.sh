@@ -8,9 +8,20 @@
 set -eu
 
 # Configuration
-GITHUB_REPO="Thin-Remote/thinr-agent"
 BINARY_NAME="thinr-agent"
-GITHUB_API_URL="https://api.github.com"
+# CHANNEL is set by the generated install scripts (install.sh, install-main.sh, install-develop.sh)
+# If not set, default to latest for backward compatibility
+CHANNEL="${CHANNEL:-latest}"
+
+# Detect protocol from the script download or environment
+if [ -n "${HTTP_DOWNLOAD:-}" ] || echo "${0}" | grep -q "^http://"; then
+    PROTOCOL="http"
+else
+    PROTOCOL="https"
+fi
+
+# Base URL for downloads
+BASE_URL="${PROTOCOL}://get.thinremote.io"
 
 # Initialize variables
 OS=""
@@ -28,11 +39,17 @@ OPTIONS:
     -v, --version       Install specific version (default: latest)
     
 Examples:
-    # Install latest version
-    curl -fsSL https://raw.githubusercontent.com/Thin-Remote/thinr-agent/main/scripts/install.sh | sh
+    # Install latest stable version
+    curl -fsSL https://get.thinremote.io/install.sh | sh
     
-    # Install specific version
-    curl -fsSL https://raw.githubusercontent.com/Thin-Remote/thinr-agent/main/scripts/install.sh | sh -s -- -v v1.0.0
+    # Install from main branch
+    curl -fsSL https://get.thinremote.io/install-main.sh | sh
+    
+    # Install from develop branch
+    curl -fsSL https://get.thinremote.io/install-develop.sh | sh
+    
+    # Install via HTTP (for devices without HTTPS)
+    curl -fsSL http://get.thinremote.io/install.sh | sh
 
 EOF
     exit 0
@@ -182,43 +199,50 @@ get_latest_version() {
     
     DOWNLOAD_TOOL=$(get_download_tool)
     
-    # Get latest release from GitHub API
-    latest=$($DOWNLOAD_TOOL "$GITHUB_API_URL/repos/$GITHUB_REPO/releases/latest" | \
-             grep '"tag_name":' | \
-             sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [ -z "$latest" ]; then
-        echo "Error: Failed to fetch latest version from GitHub"
-        echo "Please check your internet connection or try specifying a version with -v"
-        exit 1
+    # When using CDN, get the latest version from the version file
+    if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "main" ] || [ "$CHANNEL" = "develop" ]; then
+        # For branch channels, version is not needed
+        echo "$CHANNEL"
+    else
+        # For specific versions (tags), use the channel as version
+        echo "$CHANNEL"
     fi
-    
-    echo "$latest"
 }
 
 construct_binary_name() {
     if [ "$OS" = "linux" ]; then
-        # Special handling for MIPS architectures
+        # Map our arch detection to the actual binary names
         case "$ARCH" in
-            mips|mipsel)
-                echo "${BINARY_NAME}-${ARCH}-${OS}-${LIBC}"
+            x86_64)
+                echo "${BINARY_NAME}.x86_64-linux-musl"
                 ;;
-            mips-sf)
-                echo "${BINARY_NAME}-mips-${OS}-${LIBC}sf"
+            i386)
+                echo "${BINARY_NAME}.i686-linux-musl"
                 ;;
-            mipsel-sf)
-                echo "${BINARY_NAME}-mipsel-${OS}-${LIBC}sf"
+            armv6)
+                echo "${BINARY_NAME}.armv5l-linux-musleabi"
+                ;;
+            armv7)
+                echo "${BINARY_NAME}.armv7-linux-musleabihf"
+                ;;
+            aarch64)
+                echo "${BINARY_NAME}.aarch64-linux-musl"
+                ;;
+            mips|mips-sf)
+                echo "${BINARY_NAME}.mips-linux-musl"
+                ;;
+            mipsel|mipsel-sf)
+                echo "${BINARY_NAME}.mipsel-linux-musl"
                 ;;
             *)
-                echo "${BINARY_NAME}-${OS}-${LIBC}-${ARCH}"
+                echo "Error: No binary available for architecture: $ARCH"
+                exit 1
                 ;;
         esac
     else
         echo "${BINARY_NAME}-${OS}-${ARCH}"
     fi
 }
-
-# Removed check_sudo as we don't need root privileges to download and run
 
 main() {
     # Parse command line arguments
@@ -259,17 +283,32 @@ main() {
     if [ -n "$LIBC" ]; then
         echo "  Libc: $LIBC"
     fi
+    echo "  Protocol: $PROTOCOL"
     echo
     
     # Get version if not specified
     if [ -z "$VERSION" ]; then
         VERSION=$(get_latest_version)
     fi
-    echo "Version to install: $VERSION"
+    
+    # Show appropriate message based on channel
+    if [ "$CHANNEL" = "main" ] || [ "$CHANNEL" = "develop" ]; then
+        echo "Channel: $CHANNEL (latest build)"
+    else
+        echo "Version to install: $VERSION"
+    fi
     
     # Construct download URL
     BINARY_FILE=$(construct_binary_name)
-    DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/$VERSION/$BINARY_FILE"
+    
+    # Use CDN URL structure
+    if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "main" ] || [ "$CHANNEL" = "develop" ]; then
+        # For channels, use binaries/channel/filename
+        DOWNLOAD_URL="${BASE_URL}/binaries/${CHANNEL}/${BINARY_FILE}"
+    else
+        # For specific versions (tags), use binaries/version/filename
+        DOWNLOAD_URL="${BASE_URL}/binaries/${VERSION}/${BINARY_FILE}"
+    fi
     
     echo "Download URL: $DOWNLOAD_URL"
     echo
