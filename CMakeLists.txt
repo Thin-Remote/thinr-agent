@@ -1,8 +1,14 @@
 cmake_minimum_required(VERSION 3.11)
 project(thinr-agent)
 
+# Set CMake policy for FetchContent timestamp handling
 if (${CMAKE_VERSION} VERSION_GREATER "3.24")
-  cmake_policy(SET CMP0135 NEW)
+  cmake_policy(SET CMP0135 NEW)  # Use extraction time for downloaded archives
+endif()
+
+# Handle new CMake policies for Boost
+if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.30")
+  cmake_policy(SET CMP0167 OLD)  # Continue using FindBoost for now
 endif()
 
 # set package version
@@ -28,17 +34,17 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
   add_compile_options(-Wno-psabi)
 endif()
 
-# configure Thinger.io parameters
+# configure build parameters
 OPTION(ENABLE_OPENSSL "Enable use of OpenSSL" ON)
-OPTION(STATIC "Enable cross compilation and static linking" OFF)
+OPTION(STATIC "Enable cross compilation and static linking" ON)
 OPTION(BIN_EXTENSION "Set binary file extension" OFF)
 
 # Boost
 set(Boost_USE_MULTITHREADED      ON)
-if(APPLE)
-  set(Boost_USE_STATIC_LIBS OFF)
-else()
+if(STATIC)
   set(Boost_USE_STATIC_LIBS ON)
+else()
+  set(Boost_USE_STATIC_LIBS OFF)
 endif()
 find_package(Boost REQUIRED COMPONENTS program_options)
 if(Boost_FOUND)
@@ -49,7 +55,7 @@ endif()
 # OpenSSL
 if(ENABLE_OPENSSL)
   SET(OPEN_SSL 1)
-  if(STATIC AND NOT APPLE)
+  if(STATIC)
     set(OPENSSL_USE_STATIC_LIBS TRUE)
   endif()
   find_package(OpenSSL REQUIRED)
@@ -85,7 +91,7 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 FetchContent_MakeAvailable(spdlog)
 
 # json
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
 list(APPEND ADDITIONAL_LIBS nlohmann_json::nlohmann_json)
 
