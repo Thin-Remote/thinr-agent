@@ -87,6 +87,18 @@ jobs:
         arch: [arm64]  # Only build for native architecture
     
     steps:
+    - name: Setup dependencies for deployment target
+      run: |
+        # Check if dependencies need rebuilding for deployment target
+        if ! otool -l /opt/homebrew/opt/openssl@3/lib/libcrypto.a | grep -A3 "LC_VERSION_MIN_MACOSX" | grep -q "version 11.0"; then
+          echo "Rebuilding dependencies for macOS 11.0 deployment target..."
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          export HOMEBREW_MACOS_VERSION_MIN=11.0
+          brew reinstall --build-from-source openssl@3 libarchive boost || true
+        else
+          echo "Dependencies already built for correct deployment target"
+        fi
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
