@@ -160,8 +160,14 @@ jobs:
           fi
         done
         
-        # Upload to S3
-        aws s3 sync binaries/ s3://${{ secrets.S3_BUCKET }}/binaries/ --delete --cache-control "max-age=3600"
+        # If this is a release, also copy to latest
+        if [[ "${{ github.event_name }}" == "release" ]]; then
+          mkdir -p binaries/latest
+          cp binaries/${{ steps.channel.outputs.channel }}/* binaries/latest/
+        fi
+        
+        # Upload to S3 (don't use --delete to preserve other versions)
+        aws s3 sync binaries/ s3://${{ secrets.S3_BUCKET }}/binaries/ --cache-control "max-age=3600"
 
     - name: Generate and upload install script
       run: |
@@ -169,14 +175,14 @@ jobs:
         INSTALL_TEMPLATE="${{ github.workspace }}/scripts/install.sh"
         
         # Generate channel-specific install script
-        # Simply prepend the CHANNEL variable to the base script
-        echo '#!/bin/sh' > ${{ steps.channel.outputs.install_script }}
-        echo '# Auto-generated install script for channel: ${{ steps.channel.outputs.channel }}' >> ${{ steps.channel.outputs.install_script }}
-        echo 'CHANNEL="${{ steps.channel.outputs.channel }}"' >> ${{ steps.channel.outputs.install_script }}
-        echo '' >> ${{ steps.channel.outputs.install_script }}
-        
-        # Append the base install script content (minus the shebang and initial comments)
-        tail -n +8 "$INSTALL_TEMPLATE" >> ${{ steps.channel.outputs.install_script }}
+        # For releases, install.sh points to 'latest', others point to their specific channel
+        if [[ "${{ github.event_name }}" == "release" ]]; then
+          # For release, install.sh uses 'latest' channel
+          cp "$INSTALL_TEMPLATE" ${{ steps.channel.outputs.install_script }}
+        else
+          # For branches, replace default with specific channel
+          sed 's/CHANNEL="${CHANNEL:-latest}"/CHANNEL="${CHANNEL:-${{ steps.channel.outputs.channel }}}"/' "$INSTALL_TEMPLATE" > ${{ steps.channel.outputs.install_script }}
+        fi
         
         # Make it executable
         chmod +x ${{ steps.channel.outputs.install_script }}

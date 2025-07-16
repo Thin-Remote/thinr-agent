@@ -5,13 +5,14 @@
 # ThinRemote Agent Installer
 # Downloads and runs the appropriate ThinRemote binary for your system
 
+# CHANNEL is set by the generated install scripts (install.sh, install-main.sh, install-develop.sh)
+# If not set, default to latest
+CHANNEL="${CHANNEL:-latest}"
+
 set -eu
 
 # Configuration
 BINARY_NAME="thinr-agent"
-# CHANNEL is set by the generated install scripts (install.sh, install-main.sh, install-develop.sh)
-# If not set, default to latest for backward compatibility
-CHANNEL="${CHANNEL:-latest}"
 
 # Detect protocol from the script download or environment
 if [ -n "${HTTP_DOWNLOAD:-}" ] || echo "${0}" | grep -q "^http://"; then
