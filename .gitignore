@@ -1,0 +1,8 @@
+
+/*build*/
+config/thinger_monitor.json_*
+cmake-*
+.idea
+.vscode
+.claude
+*_bk

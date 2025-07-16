@@ -1,0 +1,55 @@
+#pragma once
+
+#ifndef THINREMOTE_COMMAND_HANDLER_HPP
+#define THINREMOTE_COMMAND_HANDLER_HPP
+
+#include "argument_parser.hpp"
+#include "service_manager.hpp"
+#include "../config/config_manager.hpp"
+#include "../auth/auth_manager.hpp"
+
+namespace thinr::cli {
+
+class CommandHandler {
+public:
+    CommandHandler();
+    
+    // Main execution method
+    int execute(const ParseResult& parse_result);
+    
+    // Command handlers
+    int handle_install(const InstallOptions& options);
+    int handle_uninstall();
+    int handle_status();
+    int handle_test();
+    int handle_reconfigure();
+    int handle_test_menu();
+    int handle_no_command(const std::string& config_path);
+    
+private:
+    ServiceManager service_manager_;
+    config::ConfigManager config_manager_;
+    auth::AuthManager auth_manager_;
+    installer::ServiceInstaller service_installer_;
+    
+    // Install helpers
+    bool install_with_token(const InstallOptions& options);
+    bool install_interactive(const InstallOptions& options);
+    bool save_and_install_service(const config::DeviceCredentials& credentials, bool no_start);
+    std::string determine_device_id(const std::string& provided_device_id);
+    
+    // System-wide detection
+    bool check_system_installation() const;
+    int handle_system_installation_detected();
+    bool is_running_as_root() const;
+    int handle_no_configuration_but_run(const std::string& config_path);
+    
+    // Utility methods
+    bool is_interactive_terminal() const;
+    std::string read_password_securely();
+    void setup_logging(int verbosity_level);
+};
+
+} // namespace thinr::cli
+
+#endif // THINREMOTE_COMMAND_HANDLER_HPP
