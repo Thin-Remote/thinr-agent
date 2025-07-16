@@ -118,11 +118,20 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 endif()
 
 # Force static linking of libarchive when STATIC is ON
-if(STATIC)
-  set(LibArchive_USE_STATIC_LIBS TRUE)
+if(STATIC AND CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  # Save original suffixes
+  set(CMAKE_FIND_LIBRARY_SUFFIXES_ORIG ${CMAKE_FIND_LIBRARY_SUFFIXES})
+  # Only look for .a files
+  set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
 endif()
 
 find_package(LibArchive REQUIRED)
+
+# Restore original suffixes after finding libarchive
+if(STATIC AND CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_ORIG})
+endif()
+
 list(APPEND ADDITIONAL_LIBS LibArchive::LibArchive)
 
 # ThinRemote source files
