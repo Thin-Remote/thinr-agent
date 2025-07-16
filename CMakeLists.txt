@@ -36,7 +36,7 @@ endif()
 
 # configure build parameters
 OPTION(ENABLE_OPENSSL "Enable use of OpenSSL" ON)
-OPTION(STATIC "Enable cross compilation and static linking" ON)
+OPTION(STATIC "Enable static linking" OFF)
 OPTION(BIN_EXTENSION "Set binary file extension" OFF)
 
 # Boost
@@ -116,6 +116,12 @@ list(APPEND ADDITIONAL_LIBS thinger_iotmp)
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/libarchive" ${CMAKE_PREFIX_PATH})
 endif()
+
+# Force static linking of libarchive when STATIC is ON
+if(STATIC)
+  set(LibArchive_USE_STATIC_LIBS TRUE)
+endif()
+
 find_package(LibArchive REQUIRED)
 list(APPEND ADDITIONAL_LIBS LibArchive::LibArchive)
 
