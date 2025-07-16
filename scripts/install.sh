@@ -295,7 +295,7 @@ main() {
     echo "System detected:"
     echo "  OS: $OS"
     echo "  Architecture: $ARCH"
-    if [ -n "$LIBC" ]; then
+    if [ "$OS" = "linux" ] && [ -n "${LIBC:-}" ]; then
         echo "  Libc: $LIBC"
     fi
     echo "  Protocol: $PROTOCOL"
