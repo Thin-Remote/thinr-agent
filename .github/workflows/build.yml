@@ -7,7 +7,7 @@ on:
   release:
     types: [ published ] # when a release is created, build and publish bins
   pull_request:
-    branches: [ mian, develop ] # when a pull request is opened only build
+    branches: [ main, develop ] # when a pull request is opened only build
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -61,6 +61,7 @@ jobs:
         ref: ${{ needs.build_version.outputs.version }}
 
     - name: Configure CMake
+      shell: bash
       run: |
         source /etc/bash.bashrc
         cmake -B /build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_VERSION=${{ needs.build_version.outputs.version }} -DBIN_EXTENSION=ON -DARCH=${{ matrix.target }}
