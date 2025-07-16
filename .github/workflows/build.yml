@@ -97,7 +97,10 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DBUILD_VERSION=${{ needs.build_version.outputs.version }} \
           -DENABLE_OPENSSL=ON \
-          -DSTATIC=ON
+          -DSTATIC=ON \
+          -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DBoost_USE_STATIC_LIBS=ON
     
     - name: Build
       run: cmake --build build --config ${{ env.BUILD_TYPE }} --target thinr-agent -- -j$(sysctl -n hw.ncpu)
