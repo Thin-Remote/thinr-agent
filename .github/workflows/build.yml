@@ -83,6 +83,9 @@ jobs:
   build_macos:
     runs-on: [self-hosted, macOS, ARM64]
     needs: build_version
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
     
     steps:
     - name: Checkout repository
@@ -93,24 +96,25 @@ jobs:
     
     - name: Configure CMake
       run: |
-        cmake -B build \
+        cmake -B build-${{ matrix.arch }} \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DBUILD_VERSION=${{ needs.build_version.outputs.version }} \
           -DSTATIC=ON \
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
     
     - name: Build
-      run: cmake --build build --config ${{ env.BUILD_TYPE }} --target thinr-agent -- -j$(sysctl -n hw.ncpu)
+      run: cmake --build build-${{ matrix.arch }} --config ${{ env.BUILD_TYPE }} --target thinr-agent -- -j$(sysctl -n hw.ncpu)
     
     - name: Rename binary with architecture
       run: |
-        mv build/thinr-agent build/thinr-agent.arm64-darwin
+        mv build-${{ matrix.arch }}/thinr-agent build-${{ matrix.arch }}/thinr-agent.${{ matrix.arch }}-darwin
     
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.MODULE }}-arm64-darwin
-        path: build/${{ env.MODULE }}.arm64-darwin
+        name: ${{ env.MODULE }}-${{ matrix.arch }}-darwin
+        path: build-${{ matrix.arch }}/${{ env.MODULE }}.${{ matrix.arch }}-darwin
         if-no-files-found: error
         retention-days: 1
 
@@ -129,7 +133,8 @@ jobs:
           "aarch64-linux-musl",
           "mips-linux-musl",
           "mipsel-linux-musl",
-          "arm64-darwin"
+          "arm64-darwin",
+          "x86_64-darwin"
         ]
 
     steps:
