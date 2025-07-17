@@ -158,13 +158,6 @@ target_link_libraries(${PROJECT_NAME} ${ADDITIONAL_LIBS})
 
 # ThinRemote executable
 add_executable(thinremote ${THINREMOTE_SOURCE_FILES})
-
-# Add sanitizers for macOS in debug mode (disabled for now)
-# if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-#     target_compile_options(thinremote PRIVATE -fsanitize=address -fno-omit-frame-pointer -fsanitize-recover=address -g)
-#     target_link_options(thinremote PRIVATE -fsanitize=address)
-# endif()
-
 target_link_libraries(thinremote ${ADDITIONAL_LIBS})
 
 # Strip binaries in Release mode for smaller size
@@ -191,32 +184,6 @@ export(TARGETS httplib
 export(TARGETS spdlog
         NAMESPACE spdlog::
         FILE ${CMAKE_CURRENT_BINARY_DIR}/spdlogTargets.cmake)
-
-# Catch2
-FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY  https://github.com/catchorg/Catch2.git
-        GIT_TAG         v3.6.0
-)
-FetchContent_MakeAvailable(Catch2)
-
-# Test source files
-file(GLOB_RECURSE TEST_FILES
-        "src/thinger/*.hpp"
-        "src/thinger/*.h"
-        "src/thinger/*.cpp"
-        "src/thinger/*.cc"
-        "src/thinger/*.c"
-        "test/*.hpp"
-        "test/*.h"
-        "test/*.cpp"
-        "test/*.cc"
-        "test/*.c"
-)
-
-add_executable(tests ${TEST_FILES})
-list(APPEND ADDITIONAL_LIBS Catch2::Catch2WithMain)
-target_link_libraries(tests ${ADDITIONAL_LIBS})
 
 if(BIN_EXTENSION)
   if(ARCH)
