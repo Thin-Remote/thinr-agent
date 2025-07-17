@@ -142,28 +142,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(thinger_iotmp)
 list(APPEND ADDITIONAL_LIBS thinger_iotmp)
 
-#libarchive
-if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-  set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/libarchive" ${CMAKE_PREFIX_PATH})
-endif()
-
-# Force static linking of libarchive when STATIC is ON
-if(STATIC AND CMAKE_SYSTEM_NAME MATCHES "Darwin")
-  # Save original suffixes
-  set(CMAKE_FIND_LIBRARY_SUFFIXES_ORIG ${CMAKE_FIND_LIBRARY_SUFFIXES})
-  # Only look for .a files
-  set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
-endif()
-
-find_package(LibArchive REQUIRED)
-
-# Restore original suffixes after finding libarchive
-if(STATIC AND CMAKE_SYSTEM_NAME MATCHES "Darwin")
-  set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_ORIG})
-endif()
-
-list(APPEND ADDITIONAL_LIBS LibArchive::LibArchive)
-
 # ThinRemote source files
 file(GLOB_RECURSE THINREMOTE_SOURCE_FILES
         "src/main.cpp"
