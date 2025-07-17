@@ -7,6 +7,11 @@
 #include <cstdlib>
 #include <spdlog/spdlog.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <limits.h>
+#endif
+
 namespace thinr::installer {
 
 BaseServiceInstaller::BaseServiceInstaller() {
@@ -42,11 +47,26 @@ std::string BaseServiceInstaller::get_service_file_path_public(bool system_wide)
 std::string BaseServiceInstaller::get_current_binary_path() {
     // Try to get the path of the current executable
     char path[1024];
+    
+#ifdef __APPLE__
+    // macOS: use _NSGetExecutablePath
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) == 0) {
+        // Resolve to absolute path
+        char resolved_path[PATH_MAX];
+        if (realpath(path, resolved_path) != nullptr) {
+            return std::string(resolved_path);
+        }
+        return std::string(path);
+    }
+#else
+    // Linux: use /proc/self/exe
     ssize_t count = readlink("/proc/self/exe", path, sizeof(path) - 1);
     if (count != -1) {
         path[count] = '\0';
         return std::string(path);
     }
+#endif
     
     // Fallback: assume we're in the current directory
     return "./thinr-agent";
