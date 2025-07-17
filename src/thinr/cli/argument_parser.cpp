@@ -14,6 +14,7 @@ ParseResult ArgumentParser::parse(int argc, char* argv[]) {
         po::options_description global_desc("Global options");
         global_desc.add_options()
             ("help,h", "show this help message")
+            ("version", "show version information")
             ("verbosity,v", po::value<int>(&result.verbosity_level)->default_value(1), "set verbosity level (0-4)")
             ("config,c", po::value<std::string>(&result.config_path), "path to configuration file")
             ("command", po::value<std::string>(&result.command_str), "command to execute");
@@ -35,6 +36,12 @@ ParseResult ArgumentParser::parse(int argc, char* argv[]) {
         // Check for help at global level
         if (vm.count("help")) {
             result.command = ParseResult::Command::HELP;
+            return result;
+        }
+        
+        // Check for version flag
+        if (vm.count("version")) {
+            result.command = ParseResult::Command::VERSION;
             return result;
         }
         
@@ -92,7 +99,7 @@ void ArgumentParser::show_help(const std::string& command) const {
 }
 
 void ArgumentParser::show_general_help() const {
-    std::cout << "ThinRemote v" << VERSION << " - Remote Access Client\n";
+    std::cout << "ThinRemote " << AGENT_VERSION << " - Remote Access Client\n";
     std::cout << "Usage: thinr-agent [command] [options]\n\n";
     std::cout << "Commands:\n";
     std::cout << "  (no command)     Interactive setup or agent mode\n";
@@ -109,7 +116,7 @@ void ArgumentParser::show_general_help() const {
 }
 
 void ArgumentParser::show_install_help() const {
-    std::cout << "ThinRemote v" << VERSION << " - Install Command\n";
+    std::cout << "ThinRemote " << AGENT_VERSION << " - Install Command\n";
     std::cout << "Usage: thinr-agent install [options]\n\n";
     std::cout << "Fast-track installation that skips testing and installs the service immediately.\n\n";
     std::cout << "Options:\n";

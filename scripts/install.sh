@@ -2,7 +2,7 @@
 # Copyright (c) Thinger.io
 # SPDX-License-Identifier: MIT
 #
-# ThinRemote Agent Installer
+# ThinRemote Agent Launcher
 # Downloads and runs the appropriate ThinRemote binary for your system
 
 # CHANNEL is set by the generated install scripts (install.sh, install-main.sh, install-develop.sh)
@@ -31,7 +31,7 @@ VERSION=""
 
 usage() {
     cat <<EOF
-ThinRemote Agent Installer
+ThinRemote Agent Launcher
 
 Usage: install.sh [OPTIONS]
 
@@ -170,7 +170,7 @@ detect_libc() {
 check_prerequisites() {
     # Check for curl or wget
     if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-        echo "Error: This installer requires either curl or wget."
+        echo "Error: This launcher requires either curl or wget."
         echo "Please install one of them and try again."
         exit 1
     fi
@@ -282,8 +282,8 @@ main() {
         shift
     done
     
-    echo "ThinRemote Agent Installer"
-    echo "========================="
+    echo "ThinRemote Agent Launcher"
+    echo "========================"
     echo
     
     # Detect system information
@@ -295,10 +295,6 @@ main() {
     echo "System detected:"
     echo "  OS: $OS"
     echo "  Architecture: $ARCH"
-    if [ "$OS" = "linux" ] && [ -n "${LIBC:-}" ]; then
-        echo "  Libc: $LIBC"
-    fi
-    echo "  Protocol: $PROTOCOL"
     echo
     
     # Get version if not specified

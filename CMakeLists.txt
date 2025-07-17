@@ -11,18 +11,48 @@ if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.30")
   cmake_policy(SET CMP0167 OLD)  # Continue using FindBoost for now
 endif()
 
-# set package version
-set(VERSION_MAJOR "1" CACHE STRING "Major version number")
-set(VERSION_MINOR "0" CACHE STRING "Minor version number")
-set(VERSION_PATCH "0" CACHE STRING "Patch version number")
+# Get version from git tags
+execute_process(
+    COMMAND git describe --tags --always
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
 
-if(NOT BUILD_VERSION)
-  add_definitions( -DBUILD_VERSION=develop )
-  message(STATUS "The program version is develop")
-else()
-  add_definitions( -DBUILD_VERSION=${BUILD_VERSION} )
-  message(STATUS "The program version is ${BUILD_VERSION}")
+# Get current branch
+execute_process(
+    COMMAND git rev-parse --abbrev-ref HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_BRANCH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+# If git commands failed, use default version
+if(NOT GIT_VERSION)
+    set(GIT_VERSION "v1.0.0")
+    message(WARNING "Git version not found, using default: ${GIT_VERSION}")
 endif()
+
+if(NOT GIT_BRANCH)
+    set(GIT_BRANCH "unknown")
+    message(WARNING "Git branch not found, using default: ${GIT_BRANCH}")
+endif()
+
+# Build version string based on branch
+if(GIT_BRANCH STREQUAL "main")
+    set(AGENT_VERSION "${GIT_VERSION}")
+else()
+    set(AGENT_VERSION "${GIT_BRANCH}-${GIT_VERSION}")
+endif()
+
+message(STATUS "Git branch: ${GIT_BRANCH}")
+message(STATUS "Git version: ${GIT_VERSION}")
+message(STATUS "Agent version: ${AGENT_VERSION}")
+
+# Pass version to source code
+add_definitions(-DAGENT_VERSION=\"${AGENT_VERSION}\")
 
 # check c++20 support
 set(CMAKE_CXX_STANDARD 20)

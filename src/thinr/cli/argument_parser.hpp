@@ -27,6 +27,7 @@ struct ParseResult {
         RECONFIGURE,    // Reconfigure
         TEST_MENU,      // Test interactive menu (dev command)
         HELP,           // Show help
+        VERSION,        // Show version
         UNKNOWN         // Unknown command
     };
     
@@ -56,7 +57,6 @@ private:
     
     ParseResult::Command string_to_command(const std::string& cmd) const;
     
-    static constexpr const char* VERSION = "1.0.0";
 };
 
 } // namespace thinr::cli

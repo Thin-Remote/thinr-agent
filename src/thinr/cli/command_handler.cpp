@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <spdlog/spdlog.h>
 
+
 namespace thinr::cli {
 
 CommandHandler::CommandHandler() = default;
@@ -104,6 +105,10 @@ int CommandHandler::execute(const ParseResult& parse_result) {
             
         case ParseResult::Command::NONE:
             return handle_no_command(parse_result.config_path);
+            
+        case ParseResult::Command::VERSION:
+            std::cout << "thinr-agent version " << AGENT_VERSION << "\n";
+            return 0;
             
         case ParseResult::Command::UNKNOWN:
             std::cerr << "Unknown command: " << parse_result.command_str << "\n";
