@@ -86,6 +86,9 @@ detect_arch() {
         armv6l|armv6)
             ARCH="armv6"
             ;;
+        armv5*|arm)
+            ARCH="armv5"
+            ;;
         i386|i686)
             ARCH="i386"
             ;;
@@ -154,7 +157,7 @@ detect_arch() {
             ;;
         *)
             echo "Error: Unsupported architecture: $(uname -m)"
-            echo "Supported architectures: x86_64, aarch64, armv7, armv6, i386, mips, mipsel"
+            echo "Supported architectures: x86_64, aarch64, armv7, armv6, armv5, i386, mips, mipsel"
             exit 1
             ;;
     esac
@@ -220,7 +223,7 @@ construct_binary_name() {
             i386)
                 echo "${BINARY_NAME}.i686-linux-musl"
                 ;;
-            armv6)
+            armv5|armv6)
                 echo "${BINARY_NAME}.armv5l-linux-musleabi"
                 ;;
             armv7)
