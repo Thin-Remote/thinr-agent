@@ -70,17 +70,13 @@ OPTION(STATIC "Enable static linking" OFF)
 OPTION(BIN_EXTENSION "Set binary file extension" OFF)
 
 # Boost
-set(Boost_USE_MULTITHREADED      ON)
+set(Boost_USE_MULTITHREADED ON)
 if(STATIC)
   set(Boost_USE_STATIC_LIBS ON)
 else()
   set(Boost_USE_STATIC_LIBS OFF)
 endif()
 find_package(Boost REQUIRED COMPONENTS program_options)
-if(Boost_FOUND)
-  include_directories(${Boost_INCLUDE_DIRS})
-  list(APPEND ADDITIONAL_LIBS ${Boost_LIBRARIES})
-endif()
 
 # OpenSSL
 if(ENABLE_OPENSSL)
@@ -90,24 +86,14 @@ if(ENABLE_OPENSSL)
   endif()
   find_package(OpenSSL REQUIRED)
   if(OPENSSL_FOUND)
-    include_directories(${OPENSSL_INCLUDE_DIR})
-    list(APPEND ADDITIONAL_LIBS OpenSSL::SSL)
-    list(APPEND ADDITIONAL_LIBS OpenSSL::Crypto)
-    message(STATUS "OpenSSL Version: ${OPENSSL_VERSION} ${OPENSSL_INCLUDE_DIR} ${OPENSSL_SSL_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARIES}")
+    message(STATUS "OpenSSL Version: ${OPENSSL_VERSION}")
   endif()
 else()
   SET(OPEN_SSL 0)
 endif()
 
 
-# Source files
-file(GLOB_RECURSE SOURCE_FILES
-        "src/*.hpp"
-        "src/*.h"
-        "src/*.cpp"
-        "src/*.cc"
-        "src/*.c"
-)
+# Source files - removed legacy SOURCE_FILES variable
 
 include(FetchContent)
 
@@ -123,7 +109,6 @@ FetchContent_MakeAvailable(spdlog)
 # json
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
-list(APPEND ADDITIONAL_LIBS nlohmann_json::nlohmann_json)
 
 # httplib
 FetchContent_Declare(
@@ -132,7 +117,6 @@ FetchContent_Declare(
         GIT_TAG         v0.16.0
 )
 FetchContent_MakeAvailable(httplib)
-list(APPEND ADDITIONAL_LIBS httplib::httplib)
 
 FetchContent_Declare(
         thinger_iotmp
@@ -140,10 +124,9 @@ FetchContent_Declare(
         GIT_TAG        develop
 )
 FetchContent_MakeAvailable(thinger_iotmp)
-list(APPEND ADDITIONAL_LIBS thinger_iotmp)
 
-# ThinRemote source files
-file(GLOB_RECURSE THINREMOTE_SOURCE_FILES
+# Source files
+file(GLOB_RECURSE SOURCE_FILES
         "src/main.cpp"
         "src/thinr/*.hpp"
         "src/thinr/*.cpp"
@@ -151,14 +134,18 @@ file(GLOB_RECURSE THINREMOTE_SOURCE_FILES
         "src/thinr/**/*.cpp"
 )
 
-# Original thin_remote executable
+# ThinRemote executable (main executable)
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
-target_link_libraries(${PROJECT_NAME} ${ADDITIONAL_LIBS})
-
-# ThinRemote executable
-add_executable(thinremote ${THINREMOTE_SOURCE_FILES})
-target_link_libraries(thinremote ${ADDITIONAL_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    thinger_iotmp
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog
+    Boost::program_options
+    $<$<BOOL:${ENABLE_OPENSSL}>:OpenSSL::SSL>
+    $<$<BOOL:${ENABLE_OPENSSL}>:OpenSSL::Crypto>
+)
 
 # Strip binaries in Release mode for smaller size
 if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT APPLE)
@@ -166,24 +153,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT APPLE)
         COMMAND ${CMAKE_STRIP} --strip-all $<TARGET_FILE:${PROJECT_NAME}>
         COMMENT "Stripping ${PROJECT_NAME} binary"
     )
-    add_custom_command(TARGET thinremote POST_BUILD
-        COMMAND ${CMAKE_STRIP} --strip-all $<TARGET_FILE:thinremote>
-        COMMENT "Stripping thinremote binary"
-    )
 endif()
 
-# Export the thinger library for use in other projects
-export(TARGETS nlohmann_json
-        NAMESPACE nlohmann_json::
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/monitoringClientTargets.cmake)
-
-export(TARGETS httplib
-        NAMESPACE httplib::
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/httplibTargets.cmake)
-
-export(TARGETS spdlog
-        NAMESPACE spdlog::
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/spdlogTargets.cmake)
+# Exports removed - thinger_iotmp no longer requires them when used as subdependency
 
 if(BIN_EXTENSION)
   if(ARCH)
