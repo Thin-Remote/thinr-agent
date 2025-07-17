@@ -358,7 +358,12 @@ main() {
     echo
     
     # Execute the binary
-    "$TEMP_DIR/$BINARY_NAME" "$@"
+    # Redirect stdin to /dev/tty to make it interactive even when piped
+    if [ -e /dev/tty ]; then
+        "$TEMP_DIR/$BINARY_NAME" "$@" < /dev/tty
+    else
+        "$TEMP_DIR/$BINARY_NAME" "$@"
+    fi
     
     # The trap will clean up the temp directory when this script exits
 }

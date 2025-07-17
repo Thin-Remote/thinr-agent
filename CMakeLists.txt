@@ -92,9 +92,6 @@ else()
   SET(OPEN_SSL 0)
 endif()
 
-
-# Source files - removed legacy SOURCE_FILES variable
-
 include(FetchContent)
 
 # spdlog
@@ -154,8 +151,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT APPLE)
         COMMENT "Stripping ${PROJECT_NAME} binary"
     )
 endif()
-
-# Exports removed - thinger_iotmp no longer requires them when used as subdependency
 
 if(BIN_EXTENSION)
   if(ARCH)
