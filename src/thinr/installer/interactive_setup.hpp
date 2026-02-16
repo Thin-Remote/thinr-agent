@@ -33,10 +33,10 @@ enum class AuthMethod {
     DIRECT_CREDENTIALS = 4
 };
 
-class InteractiveSetup {
+class interactive_setup {
 public:
-    InteractiveSetup();
-    
+    interactive_setup();
+
     bool run();
     void test_interactive_menu(); // For testing the new interactive menu
 
@@ -59,36 +59,36 @@ private:
     std::string get_default_device_name();
     std::string detect_distribution();
     std::string detect_init_system();
-    
+
     enum class ConflictResolution {
         CHOOSE_NEW_ID = 1,
         OVERWRITE = 2,
         GO_BACK = 3
     };
-    
+
     ConflictResolution handle_device_conflict(const std::string& device_id);
     config::DeviceCredentials provision_with_conflict_resolution(
         const std::string& host,
-        const std::string& username, 
+        const std::string& username,
         const std::string& device_id,
         const std::string& device_name,
         const std::string& access_token);
-    
+
     config::DeviceCredentials auto_provision_with_conflict_resolution(
         const std::string& token,
         const std::string& device_id,
         const std::string& device_name);
-    
+
     std::string read_input(const std::string& prompt, bool hide_input = false);
     std::string read_password(const std::string& prompt);
     bool confirm(const std::string& prompt, bool default_yes = true);
-    
+
     void clear_screen();
     void print_separator();
-    
-    auth::AuthManager auth_manager_;
-    config::ConfigManager config_manager_;
-    ServiceInstaller service_installer_;
+
+    auth::auth_manager auth_manager_;
+    config::config_manager config_manager_;
+    service_installer service_installer_;
     SSLVerificationDecision ssl_decision_ = SSLVerificationDecision::NOT_ASKED;
 };
 

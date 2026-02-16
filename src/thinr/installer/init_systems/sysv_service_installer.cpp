@@ -9,7 +9,7 @@
 
 namespace thinr::installer {
 
-std::string SysVServiceInstaller::get_service_file_path(bool system_wide) {
+std::string sysv_service_installer::get_service_file_path(bool system_wide) {
     // SysV init only supports system-wide installation
     if (!system_wide) {
         spdlog::warn("{} only supports system-wide installation", get_init_system_name());
@@ -26,7 +26,7 @@ std::string SysVServiceInstaller::get_service_file_path(bool system_wide) {
     }
 }
 
-bool SysVServiceInstaller::install_service_impl(bool system_wide) {
+bool sysv_service_installer::install_service_impl(bool system_wide) {
     try {
         // SysV init only supports system-wide installation
         if (!system_wide || !is_running_as_root()) {
@@ -75,7 +75,7 @@ bool SysVServiceInstaller::install_service_impl(bool system_wide) {
     }
 }
 
-bool SysVServiceInstaller::uninstall_service_impl(bool system_wide) {
+bool sysv_service_installer::uninstall_service_impl(bool system_wide) {
     if (!system_wide) {
         spdlog::error("SysV init only supports system-wide installation");
         return false;
@@ -132,7 +132,7 @@ bool SysVServiceInstaller::uninstall_service_impl(bool system_wide) {
     return true;
 }
 
-bool SysVServiceInstaller::start_service_impl() {
+bool sysv_service_installer::start_service_impl() {
     std::string script_path = get_service_file_path(true);
     std::string service_name = config_.get_service_identifier();
     
@@ -160,7 +160,7 @@ bool SysVServiceInstaller::start_service_impl() {
     }
 }
 
-bool SysVServiceInstaller::stop_service_impl() {
+bool sysv_service_installer::stop_service_impl() {
     std::string script_path = get_service_file_path(true);
     std::string service_name = config_.get_service_identifier();
     
@@ -188,7 +188,7 @@ bool SysVServiceInstaller::stop_service_impl() {
     }
 }
 
-SysVServiceInstaller::ServiceStatus SysVServiceInstaller::check_service_status_impl(bool system_wide) {
+sysv_service_installer::ServiceStatus sysv_service_installer::check_service_status_impl(bool system_wide) {
     std::string script_path = get_service_file_path(system_wide);
     
     // Check if init script exists
@@ -213,7 +213,7 @@ SysVServiceInstaller::ServiceStatus SysVServiceInstaller::check_service_status_i
     }
 }
 
-std::string SysVServiceInstaller::generate_service_file(bool system_wide) {
+std::string sysv_service_installer::generate_service_file(bool system_wide) {
     std::stringstream script;
     
     // Check if this is an OpenWrt/procd system
@@ -406,7 +406,7 @@ std::string SysVServiceInstaller::generate_service_file(bool system_wide) {
     return script.str();
 }
 
-bool SysVServiceInstaller::enable_service_runlevels(const std::string& service_name) {
+bool sysv_service_installer::enable_service_runlevels(const std::string& service_name) {
     std::string enable_cmd;
     
     // Try update-rc.d first (Debian/Ubuntu)
@@ -542,7 +542,7 @@ bool SysVServiceInstaller::enable_service_runlevels(const std::string& service_n
     return true;
 }
 
-bool SysVServiceInstaller::disable_service_runlevels(const std::string& service_name) {
+bool sysv_service_installer::disable_service_runlevels(const std::string& service_name) {
     // Check for rc.conf based system first
     if (std::filesystem::exists("/etc/rc.d/rc.conf")) {
         spdlog::info("Detected rc.conf based init system, removing from rc.conf");
@@ -627,7 +627,7 @@ bool SysVServiceInstaller::disable_service_runlevels(const std::string& service_
     return true;
 }
 
-bool SysVServiceInstaller::modify_rc_conf(const std::string& service_name, bool enable) {
+bool sysv_service_installer::modify_rc_conf(const std::string& service_name, bool enable) {
     try {
         std::ifstream infile("/etc/rc.d/rc.conf");
         std::stringstream buffer;
@@ -712,7 +712,7 @@ bool SysVServiceInstaller::modify_rc_conf(const std::string& service_name, bool 
     return false;
 }
 
-void SysVServiceInstaller::remove_runlevel_symlinks(const std::string& service_name) {
+void sysv_service_installer::remove_runlevel_symlinks(const std::string& service_name) {
     spdlog::info("No runlevel management tool found, removing symlinks manually");
     int removed_count = 0;
     std::vector<std::string> removed_links;
@@ -745,7 +745,7 @@ void SysVServiceInstaller::remove_runlevel_symlinks(const std::string& service_n
     }
 }
 
-bool SysVServiceInstaller::kill_process_from_pid_file(const std::string& pid_file) {
+bool sysv_service_installer::kill_process_from_pid_file(const std::string& pid_file) {
     try {
         std::ifstream pid_stream(pid_file);
         std::string pid_str;

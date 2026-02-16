@@ -3,9 +3,9 @@
 
 namespace thinr::cli {
 
-ArgumentParser::ArgumentParser() = default;
+argument_parser::argument_parser() = default;
 
-ParseResult ArgumentParser::parse(int argc, char* argv[]) {
+ParseResult argument_parser::parse(int argc, char* argv[]) {
     namespace po = boost::program_options;
     ParseResult result;
     
@@ -87,7 +87,7 @@ ParseResult ArgumentParser::parse(int argc, char* argv[]) {
     return result;
 }
 
-void ArgumentParser::show_help(const std::string& command) const {
+void argument_parser::show_help(const std::string& command) const {
     if (command.empty()) {
         show_general_help();
     } else if (command == "install") {
@@ -98,7 +98,7 @@ void ArgumentParser::show_help(const std::string& command) const {
     }
 }
 
-void ArgumentParser::show_general_help() const {
+void argument_parser::show_general_help() const {
     std::cout << "ThinRemote " << AGENT_VERSION << " - Remote Access Client\n";
     std::cout << "Usage: thinr-agent [command] [options]\n\n";
     std::cout << "Commands:\n";
@@ -115,7 +115,7 @@ void ArgumentParser::show_general_help() const {
     std::cout << "For command-specific help, use: thinr-agent <command> --help\n";
 }
 
-void ArgumentParser::show_install_help() const {
+void argument_parser::show_install_help() const {
     std::cout << "ThinRemote " << AGENT_VERSION << " - Install Command\n";
     std::cout << "Usage: thinr-agent install [options]\n\n";
     std::cout << "Fast-track installation that skips testing and installs the service immediately.\n\n";
@@ -132,7 +132,7 @@ void ArgumentParser::show_install_help() const {
     std::cout << "  thinr-agent install --token abc123 --device server-01 --overwrite\n";
 }
 
-ParseResult::Command ArgumentParser::string_to_command(const std::string& cmd) const {
+ParseResult::Command argument_parser::string_to_command(const std::string& cmd) const {
     if (cmd.empty()) return ParseResult::Command::NONE;
     if (cmd == "install") return ParseResult::Command::INSTALL;
     if (cmd == "uninstall") return ParseResult::Command::UNINSTALL;

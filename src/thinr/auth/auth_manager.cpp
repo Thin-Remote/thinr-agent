@@ -1,13 +1,7 @@
 #include "auth_manager.hpp"
 #include "../utils/system_info.hpp"
 #include <spdlog/spdlog.h>
-
-// Enable OpenSSL support for httplib if OpenSSL is available
-#if OPEN_SSL
-  #define CPPHTTPLIB_OPENSSL_SUPPORT
-#endif
-
-#include <httplib.h>
+#include <thinger/http_client.hpp>
 #include <stdexcept>
 #include <regex>
 #include <chrono>
@@ -25,14 +19,14 @@
 
 namespace thinr::auth {
 
-AuthManager::AuthManager() {
+auth_manager::auth_manager() {
 }
 
-void AuthManager::set_ssl_verification_callback(SSLVerificationCallback callback) {
+void auth_manager::set_ssl_verification_callback(SSLVerificationCallback callback) {
     ssl_verification_callback_ = callback;
 }
 
-std::string AuthManager::oauth_password_flow(const std::string& host, 
+std::string auth_manager::oauth_password_flow(const std::string& host, 
                                             const std::string& username, 
                                             const std::string& password) {
     std::string base_url = ensure_https(host);
@@ -63,7 +57,7 @@ std::string AuthManager::oauth_password_flow(const std::string& host,
     return access_token;
 }
 
-config::DeviceCredentials AuthManager::provision_device(const std::string& host,
+config::DeviceCredentials auth_manager::provision_device(const std::string& host,
                                                        const std::string& username,
                                                        const std::string& device_id,
                                                        const std::string& device_name,
@@ -119,7 +113,7 @@ config::DeviceCredentials AuthManager::provision_device(const std::string& host,
     return credentials;
 }
 
-config::DeviceCredentials AuthManager::auto_provision(const std::string& token) {
+config::DeviceCredentials auth_manager::auto_provision(const std::string& token) {
     spdlog::debug("Attempting auto-provision with JWT token");
     
     try {
@@ -160,7 +154,7 @@ config::DeviceCredentials AuthManager::auto_provision(const std::string& token) 
     }
 }
 
-config::DeviceCredentials AuthManager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name) {
+config::DeviceCredentials auth_manager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name) {
     spdlog::debug("Attempting auto-provision with JWT token and custom device ID");
     
     try {
@@ -188,7 +182,7 @@ config::DeviceCredentials AuthManager::auto_provision_with_device_id(const std::
     }
 }
 
-bool AuthManager::test_connection(const config::DeviceCredentials& credentials) {
+bool auth_manager::test_connection(const config::DeviceCredentials& credentials) {
     std::string base_url = ensure_https(credentials.host);
     std::string test_url = base_url + "/v1/users/" + credentials.device_user + 
                           "/devices/" + credentials.device_id;
@@ -209,7 +203,7 @@ bool AuthManager::test_connection(const config::DeviceCredentials& credentials) 
     return success;
 }
 
-bool AuthManager::delete_device(const std::string& host,
+bool auth_manager::delete_device(const std::string& host,
                                const std::string& username,
                                const std::string& device_id,
                                const std::string& access_token) {
@@ -232,157 +226,137 @@ bool AuthManager::delete_device(const std::string& host,
     return success;
 }
 
-AuthManager::HttpResponse AuthManager::make_http_request(const std::string& url,
+auth_manager::HttpResponse auth_manager::make_http_request(const std::string& url,
                                                         const std::string& method,
                                                         const nlohmann::json& payload,
                                                         const std::string& authorization,
                                                         bool verify_ssl) {
     HttpResponse result;
     result.success = false;
-    
+
     try {
-        // Parse URL
-        std::regex url_regex(R"(^https?://([^/]+)(/.*)?$)");
-        std::smatch match;
-        
-        if (!std::regex_match(url, match, url_regex)) {
-            throw std::runtime_error("Invalid URL format: " + url);
+        // Create and configure HTTP client
+        thinger::http::client client;
+        client.timeout(std::chrono::seconds(HTTP_TIMEOUT_SECONDS))
+              .verify_ssl(verify_ssl)
+              .user_agent("ThinRemote/1.0.0");
+
+        if (!verify_ssl) {
+            spdlog::warn("SSL certificate verification disabled - connection is insecure!");
         }
-        
-        std::string host = match[1].str();
-        std::string path = match.size() > 2 ? match[2].str() : "/";
-        
-        if (path.empty()) path = "/";
-        
-        // Create HTTP client with SSL options
-        auto client = create_http_client(host, verify_ssl);
-        
+
         // Prepare headers
-        httplib::Headers headers = {
-            {"Content-Type", "application/json"},
-            {"User-Agent", "ThinRemote/1.0.0"}
-        };
-        
+        thinger::http::headers_map headers;
         if (!authorization.empty()) {
-            headers.emplace("Authorization", authorization);
+            headers["Authorization"] = authorization;
         }
-        
+
         // Make request
-        httplib::Result res;
-        
+        thinger::http::client_response res;
+
         if (method == "GET") {
-            res = client->Get(path.c_str(), headers);
+            res = client.get(url, headers);
         } else if (method == "POST") {
             std::string body = payload.empty() ? "" : payload.dump();
-            res = client->Post(path.c_str(), headers, body, "application/json");
+            res = client.post(url, body, "application/json", headers);
         } else if (method == "DELETE") {
-            res = client->Delete(path.c_str(), headers);
+            res = client.del(url, headers);
         } else {
             throw std::runtime_error("Unsupported HTTP method: " + method);
         }
-        
-        if (!res) {
-            throw std::runtime_error("HTTP request failed: " + httplib::to_string(res.error()));
+
+        if (res.has_error()) {
+            throw std::runtime_error("HTTP request failed: " + res.error());
         }
-        
-        result.status_code = res->status;
-        result.body = res->body;
+
+        result.status_code = res.status();
+        result.body = res.body();
         result.success = true;
-        
+
         spdlog::debug("HTTP {} {} -> {}", method, url, result.status_code);
-        
+
     } catch (const std::exception& e) {
         spdlog::error("HTTP request error: {}", e.what());
         // Re-throw the exception to let the fallback mechanism handle it
         throw;
     }
-    
+
     return result;
 }
 
-AuthManager::HttpResponse AuthManager::make_http_request_form(const std::string& url,
+auth_manager::HttpResponse auth_manager::make_http_request_form(const std::string& url,
                                                              const std::string& method,
                                                              const std::map<std::string, std::string>& form_data,
                                                              const std::string& authorization,
                                                              bool verify_ssl) {
     HttpResponse result;
     result.success = false;
-    
+
     try {
-        // Parse URL
-        std::regex url_regex(R"(^https?://([^/]+)(/.*)?$)");
-        std::smatch match;
-        
-        if (!std::regex_match(url, match, url_regex)) {
-            throw std::runtime_error("Invalid URL format: " + url);
+        // Create and configure HTTP client
+        thinger::http::client client;
+        client.timeout(std::chrono::seconds(HTTP_TIMEOUT_SECONDS))
+              .verify_ssl(verify_ssl)
+              .user_agent("ThinRemote/1.0.0");
+
+        if (!verify_ssl) {
+            spdlog::warn("SSL certificate verification disabled - connection is insecure!");
         }
-        
-        std::string host = match[1].str();
-        std::string path = match.size() > 2 ? match[2].str() : "/";
-        
-        if (path.empty()) path = "/";
-        
-        // Create HTTP client with SSL options
-        auto client = create_http_client(host, verify_ssl);
-        
+
         // Prepare headers
-        httplib::Headers headers = {
-            {"Content-Type", "application/x-www-form-urlencoded"},
-            {"User-Agent", "ThinRemote/1.0.0"}
-        };
-        
+        thinger::http::headers_map headers;
         if (!authorization.empty()) {
-            headers.emplace("Authorization", authorization);
+            headers["Authorization"] = authorization;
         }
-        
+
         // Build form data
         std::stringstream form_body;
         bool first = true;
         for (const auto& pair : form_data) {
             if (!first) form_body << "&";
             first = false;
-            
+
             // URL encode the values (basic implementation)
             std::string encoded_key = pair.first;
             std::string encoded_value = pair.second;
-            
-            // Replace spaces and special characters
+
+            // Replace spaces with +
             std::replace(encoded_value.begin(), encoded_value.end(), ' ', '+');
-            
+
             form_body << encoded_key << "=" << encoded_value;
         }
-        
+
         std::string body = form_body.str();
-        
+
         // Make request
-        httplib::Result res;
-        
+        thinger::http::client_response res;
+
         if (method == "POST") {
-            res = client->Post(path.c_str(), headers, body, "application/x-www-form-urlencoded");
+            res = client.post(url, body, "application/x-www-form-urlencoded", headers);
         } else {
             throw std::runtime_error("Unsupported HTTP method for form data: " + method);
         }
-        
-        if (!res) {
-            throw std::runtime_error("HTTP request failed: " + httplib::to_string(res.error()));
+
+        if (res.has_error()) {
+            throw std::runtime_error("HTTP request failed: " + res.error());
         }
-        
-        result.status_code = res->status;
-        result.body = res->body;
+
+        result.status_code = res.status();
+        result.body = res.body();
         result.success = true;
-        
+
         spdlog::debug("HTTP {} {} -> {}", method, url, result.status_code);
-        
+
     } catch (const std::exception& e) {
         spdlog::error("HTTP form request error: {}", e.what());
         // Re-throw the exception to let the fallback mechanism handle it
         throw;
     }
-    
+
     return result;
 }
 
-std::string AuthManager::extract_host_from_url(const std::string& url) {
+std::string auth_manager::extract_host_from_url(const std::string& url) {
     std::regex host_regex(R"(^(?:https?://)?([^/]+)(?:/.*)?$)");
     std::smatch match;
     
@@ -393,14 +367,14 @@ std::string AuthManager::extract_host_from_url(const std::string& url) {
     return url;
 }
 
-std::string AuthManager::ensure_https(const std::string& host) {
+std::string auth_manager::ensure_https(const std::string& host) {
     if (host.find("://") != std::string::npos) {
         return host;
     }
     return "https://" + host;
 }
 
-nlohmann::json AuthManager::parse_response(const HttpResponse& response, 
+nlohmann::json auth_manager::parse_response(const HttpResponse& response, 
                                           const std::string& operation) {
     try {
         return nlohmann::json::parse(response.body);
@@ -409,7 +383,7 @@ nlohmann::json AuthManager::parse_response(const HttpResponse& response,
     }
 }
 
-nlohmann::json AuthManager::decode_jwt_payload(const std::string& jwt_token) {
+nlohmann::json auth_manager::decode_jwt_payload(const std::string& jwt_token) {
     // JWT format: header.payload.signature
     std::vector<std::string> parts;
     std::stringstream ss(jwt_token);
@@ -455,7 +429,7 @@ nlohmann::json AuthManager::decode_jwt_payload(const std::string& jwt_token) {
     return nlohmann::json::parse(payload_json);
 }
 
-std::string AuthManager::generate_device_credentials() {
+std::string auth_manager::generate_device_credentials() {
     // Generate random credentials similar to "EJLU85e#-u&Q88$0"
     const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#-&$@%";
     const int length = 16;
@@ -474,21 +448,7 @@ std::string AuthManager::generate_device_credentials() {
     return credentials;
 }
 
-std::unique_ptr<httplib::Client> AuthManager::create_http_client(const std::string& host, bool verify_ssl) {
-    auto client = std::make_unique<httplib::Client>("https://" + host);
-    
-    client->set_connection_timeout(HTTP_TIMEOUT_SECONDS);
-    client->set_read_timeout(HTTP_TIMEOUT_SECONDS);
-    
-    if (!verify_ssl) {
-        spdlog::warn("SSL certificate verification disabled - connection is insecure!");
-        client->enable_server_certificate_verification(false);
-    }
-    
-    return client;
-}
-
-AuthManager::HttpResponse AuthManager::make_http_request_with_fallback(const std::string& url,
+auth_manager::HttpResponse auth_manager::make_http_request_with_fallback(const std::string& url,
                                                                       const std::string& method,
                                                                       const nlohmann::json& payload,
                                                                       const std::string& authorization) {
@@ -533,7 +493,7 @@ AuthManager::HttpResponse AuthManager::make_http_request_with_fallback(const std
     }
 }
 
-AuthManager::HttpResponse AuthManager::make_http_request_form_with_fallback(const std::string& url,
+auth_manager::HttpResponse auth_manager::make_http_request_form_with_fallback(const std::string& url,
                                                                            const std::string& method,
                                                                            const std::map<std::string, std::string>& form_data,
                                                                            const std::string& authorization) {
@@ -577,7 +537,7 @@ AuthManager::HttpResponse AuthManager::make_http_request_form_with_fallback(cons
     }
 }
 
-AuthManager::DeviceAuthResponse AuthManager::start_device_flow(const std::string& host, const std::string& client_id) {
+auth_manager::DeviceAuthResponse auth_manager::start_device_flow(const std::string& host, const std::string& client_id) {
     std::string base_url = ensure_https(host);
     std::string device_auth_url = base_url + "/oauth/device/authorize";
     
@@ -610,7 +570,7 @@ AuthManager::DeviceAuthResponse AuthManager::start_device_flow(const std::string
     return device_response;
 }
 
-std::string AuthManager::poll_device_token(const std::string& host, 
+std::string auth_manager::poll_device_token(const std::string& host, 
                                           const std::string& client_id,
                                           const std::string& device_code,
                                           int timeout_seconds,

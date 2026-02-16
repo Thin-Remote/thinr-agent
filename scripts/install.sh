@@ -89,7 +89,10 @@ detect_arch() {
         armv5*|arm)
             ARCH="armv5"
             ;;
-        i386|i686)
+        i686)
+            ARCH="i686"
+            ;;
+        i386)
             ARCH="i386"
             ;;
         mips)
@@ -220,8 +223,11 @@ construct_binary_name() {
             x86_64)
                 echo "${BINARY_NAME}.x86_64-linux-musl"
                 ;;
-            i386)
+            i686)
                 echo "${BINARY_NAME}.i686-linux-musl"
+                ;;
+            i386)
+                echo "${BINARY_NAME}.i386-linux-musl"
                 ;;
             armv5|armv6)
                 echo "${BINARY_NAME}.armv5l-linux-musleabi"

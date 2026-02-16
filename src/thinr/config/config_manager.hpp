@@ -24,22 +24,22 @@ struct DeviceCredentials {
     }
 };
 
-class ConfigManager {
+class config_manager {
 public:
-    
-    ConfigManager();
-    explicit ConfigManager(const std::string& config_path);
-    
+
+    config_manager();
+    explicit config_manager(const std::string& config_path);
+
     bool exists() const;
     void save(const DeviceCredentials& credentials);
     DeviceCredentials load();
     void remove();
-    
+
     std::string get_config_path() const { return config_path_; }
-    
+
 private:
     std::string config_path_;
-    
+
     void ensure_config_directory();
     std::string expand_path(const std::string& path);
     void encrypt_and_save(const nlohmann::json& config);

@@ -7,10 +7,10 @@
 
 namespace thinr::installer {
 
-class OpenRCServiceInstaller : public BaseServiceInstaller {
+class openrc_service_installer : public base_service_installer {
 public:
-    OpenRCServiceInstaller() = default;
-    ~OpenRCServiceInstaller() = default;
+    openrc_service_installer() = default;
+    ~openrc_service_installer() = default;
     
 protected:
     // Implement pure virtual methods

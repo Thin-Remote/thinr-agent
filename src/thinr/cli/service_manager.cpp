@@ -9,15 +9,15 @@
 
 namespace thinr::cli {
 
-ServiceManager::ServiceManager() = default;
+service_manager::service_manager() = default;
 
-bool ServiceManager::show_management_menu() {
+bool service_manager::show_management_menu() {
     auto status = service_installer_.get_service_status();
     
     utils::Console::printSectionHeader("Service Management", "📊");
     show_service_status();
     
-    if (status == installer::ServiceInstaller::ServiceStatus::INSTALLED_RUNNING) {
+    if (status == installer::service_installer::ServiceStatus::INSTALLED_RUNNING) {
         std::vector<std::string> options = {
             "View service logs",
             "Restart service", 
@@ -29,7 +29,7 @@ bool ServiceManager::show_management_menu() {
         int choice = utils::Console::getUserChoice(options, "What would you like to do?");
         return handle_running_service_choice(choice);
         
-    } else if (status == installer::ServiceInstaller::ServiceStatus::INSTALLED_STOPPED) {
+    } else if (status == installer::service_installer::ServiceStatus::INSTALLED_STOPPED) {
         std::vector<std::string> options = {
             "Start service",
             "Run manually (one-time)",
@@ -46,21 +46,21 @@ bool ServiceManager::show_management_menu() {
     }
 }
 
-void ServiceManager::show_service_status() const {
+void service_manager::show_service_status() const {
     auto status = get_service_status();
     
     std::string status_text;
     switch (status) {
-        case installer::ServiceInstaller::ServiceStatus::NOT_INSTALLED:
+        case installer::service_installer::ServiceStatus::NOT_INSTALLED:
             status_text = "Not installed";
             break;
-        case installer::ServiceInstaller::ServiceStatus::INSTALLED_STOPPED:
+        case installer::service_installer::ServiceStatus::INSTALLED_STOPPED:
             status_text = "Installed but stopped";
             break;
-        case installer::ServiceInstaller::ServiceStatus::INSTALLED_RUNNING:
+        case installer::service_installer::ServiceStatus::INSTALLED_RUNNING:
             status_text = "Running";
             break;
-        case installer::ServiceInstaller::ServiceStatus::UNKNOWN:
+        case installer::service_installer::ServiceStatus::UNKNOWN:
             status_text = "Unknown";
             break;
     }
@@ -69,7 +69,7 @@ void ServiceManager::show_service_status() const {
 }
 
 
-bool ServiceManager::handle_running_service_choice(int choice) {
+bool service_manager::handle_running_service_choice(int choice) {
     switch (choice) {
         case 1: // View logs
             return view_logs();
@@ -85,8 +85,8 @@ bool ServiceManager::handle_running_service_choice(int choice) {
                 
                 // Verify service is actually stopped
                 auto new_status = service_installer_.get_service_status();
-                if (new_status == installer::ServiceInstaller::ServiceStatus::INSTALLED_STOPPED ||
-                    new_status == installer::ServiceInstaller::ServiceStatus::NOT_INSTALLED) {
+                if (new_status == installer::service_installer::ServiceStatus::INSTALLED_STOPPED ||
+                    new_status == installer::service_installer::ServiceStatus::NOT_INSTALLED) {
                     std::cout << utils::Console::success("Service stopped successfully. Switching to manual mode...") << "\n";
                     return false; // Continue to manual mode
                 } else {
@@ -108,7 +108,7 @@ bool ServiceManager::handle_running_service_choice(int choice) {
     }
 }
 
-bool ServiceManager::handle_stopped_service_choice(int choice) {
+bool service_manager::handle_stopped_service_choice(int choice) {
     switch (choice) {
         case 1: // Start service
             return start_service();
@@ -126,7 +126,7 @@ bool ServiceManager::handle_stopped_service_choice(int choice) {
     }
 }
 
-bool ServiceManager::uninstall_completely() {
+bool service_manager::uninstall_completely() {
     utils::Console::printSectionHeader("Complete Uninstallation", "🗑️");
     
     if (!confirm_uninstall()) {
@@ -138,7 +138,7 @@ bool ServiceManager::uninstall_completely() {
     
     // Step 1: Stop service if running
     auto status = service_installer_.get_service_status();
-    if (status == installer::ServiceInstaller::ServiceStatus::INSTALLED_RUNNING) {
+    if (status == installer::service_installer::ServiceStatus::INSTALLED_RUNNING) {
         std::cout << utils::Console::loading("Stopping service...") << "\n";
         if (service_installer_.stop_service()) {
             std::cout << utils::Console::success("Service stopped") << "\n";
@@ -170,7 +170,7 @@ bool ServiceManager::uninstall_completely() {
     return true; // Return to exit
 }
 
-bool ServiceManager::confirm_uninstall() {
+bool service_manager::confirm_uninstall() {
     std::cout << utils::Console::cyan("This will:") << "\n";
     std::cout << "  • Stop the service if running\n";
     std::cout << "  • Uninstall the service completely\n"; 
@@ -182,7 +182,7 @@ bool ServiceManager::confirm_uninstall() {
     return utils::Console::confirm("Are you sure you want to completely uninstall ThinRemote?", false);
 }
 
-bool ServiceManager::remove_configuration_and_data() {
+bool service_manager::remove_configuration_and_data() {
     try {
         bool config_removed = false;
         
@@ -218,7 +218,7 @@ bool ServiceManager::remove_configuration_and_data() {
     }
 }
 
-void ServiceManager::cleanup_directories() {
+void service_manager::cleanup_directories() {
     // Determine if we're cleaning system-wide or user installation
     bool is_root = (geteuid() == 0);
     
@@ -278,7 +278,7 @@ void ServiceManager::cleanup_directories() {
     }
 }
 
-bool ServiceManager::start_service() {
+bool service_manager::start_service() {
     std::cout << utils::Console::loading("Starting service...") << "\n";
     if (service_installer_.start_service()) {
         std::cout << utils::Console::success("Service started successfully") << "\n";
@@ -289,7 +289,7 @@ bool ServiceManager::start_service() {
     }
 }
 
-bool ServiceManager::stop_service() {
+bool service_manager::stop_service() {
     std::cout << utils::Console::loading("Stopping service...") << "\n";
     if (service_installer_.stop_service()) {
         std::cout << utils::Console::success("Service stopped successfully") << "\n";
@@ -300,7 +300,7 @@ bool ServiceManager::stop_service() {
     }
 }
 
-bool ServiceManager::restart_service() {
+bool service_manager::restart_service() {
     std::cout << utils::Console::loading("Restarting service...") << "\n";
     if (service_installer_.stop_service() && service_installer_.start_service()) {
         std::cout << utils::Console::success("Service restarted successfully") << "\n";
@@ -311,19 +311,19 @@ bool ServiceManager::restart_service() {
     }
 }
 
-bool ServiceManager::view_logs() {
+bool service_manager::view_logs() {
     std::cout << "\nService logs:\n";
     // TODO: Implement log viewing
     system("journalctl -u thin-remote -n 20 --no-pager || launchctl log show --predicate 'subsystem == \"io.thinremote.agent\"' --last 1h");
     return true; // Return to exit
 }
 
-installer::ServiceInstaller::ServiceStatus ServiceManager::get_service_status() const {
-    // Need to cast away const since get_service_status is not const in ServiceInstaller
-    return const_cast<installer::ServiceInstaller&>(service_installer_).get_service_status();
+installer::service_installer::ServiceStatus service_manager::get_service_status() const {
+    // Need to cast away const since get_service_status is not const in service_installer
+    return const_cast<installer::service_installer&>(service_installer_).get_service_status();
 }
 
-bool ServiceManager::is_interactive_terminal() const {
+bool service_manager::is_interactive_terminal() const {
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 }
 

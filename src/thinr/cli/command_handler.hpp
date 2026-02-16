@@ -10,13 +10,13 @@
 
 namespace thinr::cli {
 
-class CommandHandler {
+class command_handler {
 public:
-    CommandHandler();
-    
+    command_handler();
+
     // Main execution method
     int execute(const ParseResult& parse_result);
-    
+
     // Command handlers
     int handle_install(const InstallOptions& options);
     int handle_uninstall();
@@ -25,25 +25,25 @@ public:
     int handle_reconfigure();
     int handle_test_menu();
     int handle_no_command(const std::string& config_path);
-    
+
 private:
-    ServiceManager service_manager_;
-    config::ConfigManager config_manager_;
-    auth::AuthManager auth_manager_;
-    installer::ServiceInstaller service_installer_;
-    
+    service_manager service_manager_;
+    config::config_manager config_manager_;
+    auth::auth_manager auth_manager_;
+    installer::service_installer service_installer_;
+
     // Install helpers
     bool install_with_token(const InstallOptions& options);
     bool install_interactive(const InstallOptions& options);
     bool save_and_install_service(const config::DeviceCredentials& credentials, bool no_start);
     std::string determine_device_id(const std::string& provided_device_id);
-    
+
     // System-wide detection
     bool check_system_installation() const;
     int handle_system_installation_detected();
     bool is_running_as_root() const;
     int handle_no_configuration_but_run(const std::string& config_path);
-    
+
     // Utility methods
     bool is_interactive_terminal() const;
     std::string read_password_securely();

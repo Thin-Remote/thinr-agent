@@ -4,60 +4,60 @@
 
 namespace thinr::installer {
 
-ServiceInstaller::ServiceInstaller() {
+service_installer::service_installer() {
     try {
-        impl_ = ServiceInstallerFactory::create();
+        impl_ = service_installer_factory::create();
     } catch (const std::exception& e) {
         spdlog::error("Failed to create service installer: {}", e.what());
         throw;
     }
 }
 
-bool ServiceInstaller::is_running_as_root() {
+bool service_installer::is_running_as_root() {
     return impl_->is_running_as_root();
 }
 
-bool ServiceInstaller::can_install_system_service() {
+bool service_installer::can_install_system_service() {
     return impl_->can_install_system_service();
 }
 
-ServiceInstaller::InstallMode ServiceInstaller::get_recommended_install_mode() {
+service_installer::InstallMode service_installer::get_recommended_install_mode() {
     return impl_->get_recommended_install_mode();
 }
 
-std::string ServiceInstaller::get_binary_install_path(bool system_wide) {
+std::string service_installer::get_binary_install_path(bool system_wide) {
     return impl_->get_binary_install_path(system_wide);
 }
 
-std::string ServiceInstaller::get_config_path() {
+std::string service_installer::get_config_path() {
     return impl_->get_config_path();
 }
 
-std::string ServiceInstaller::get_service_file_path(bool system_wide) {
+std::string service_installer::get_service_file_path(bool system_wide) {
     return impl_->get_service_file_path_public(system_wide);
 }
 
-bool ServiceInstaller::install_service(InstallMode mode) {
+bool service_installer::install_service(InstallMode mode) {
     return impl_->install_service(mode);
 }
 
-bool ServiceInstaller::uninstall_service() {
+bool service_installer::uninstall_service() {
     return impl_->uninstall_service();
 }
 
-ServiceInstaller::ServiceStatus ServiceInstaller::get_service_status() {
+service_installer::ServiceStatus service_installer::get_service_status() {
     return impl_->get_service_status();
 }
 
-bool ServiceInstaller::start_service() {
+bool service_installer::start_service() {
     return impl_->start_service();
 }
 
-bool ServiceInstaller::stop_service() {
+bool service_installer::stop_service() {
     return impl_->stop_service();
 }
 
-ServiceInstaller::ServiceStatus ServiceInstaller::get_service_status_for_privilege(bool system_wide) {
+service_installer::ServiceStatus service_installer::get_service_status_for_privilege(bool system_wide) {
     // Use the public check_service_status method
     return impl_->check_service_status(system_wide);
 }

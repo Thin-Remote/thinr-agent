@@ -14,37 +14,37 @@
 
 namespace thinr::installer {
 
-BaseServiceInstaller::BaseServiceInstaller() {
+base_service_installer::base_service_installer() {
 }
 
-bool BaseServiceInstaller::is_running_as_root() const {
+bool base_service_installer::is_running_as_root() const {
     return getuid() == 0;
 }
 
-bool BaseServiceInstaller::can_install_system_service() const {
+bool base_service_installer::can_install_system_service() const {
     return is_running_as_root();
 }
 
-BaseServiceInstaller::InstallMode BaseServiceInstaller::get_recommended_install_mode() {
+base_service_installer::InstallMode base_service_installer::get_recommended_install_mode() {
     if (can_install_system_service()) {
         return InstallMode::SYSTEM;
     }
     return InstallMode::USER;
 }
 
-std::string BaseServiceInstaller::get_binary_install_path(bool system_wide) {
+std::string base_service_installer::get_binary_install_path(bool system_wide) {
     return config_.get_binary_install_path(system_wide);
 }
 
-std::string BaseServiceInstaller::get_config_path() {
+std::string base_service_installer::get_config_path() {
     return config_.get_config_path();
 }
 
-std::string BaseServiceInstaller::get_service_file_path_public(bool system_wide) {
+std::string base_service_installer::get_service_file_path_public(bool system_wide) {
     return get_service_file_path(system_wide);
 }
 
-std::string BaseServiceInstaller::get_current_binary_path() {
+std::string base_service_installer::get_current_binary_path() {
     // Try to get the path of the current executable
     char path[1024];
     
@@ -72,7 +72,7 @@ std::string BaseServiceInstaller::get_current_binary_path() {
     return "./thinr-agent";
 }
 
-std::string BaseServiceInstaller::get_username() {
+std::string base_service_installer::get_username() {
     const char* user = getenv("USER");
     if (user) {
         return std::string(user);
@@ -86,11 +86,11 @@ std::string BaseServiceInstaller::get_username() {
     return "unknown";
 }
 
-std::string BaseServiceInstaller::get_home_directory() {
+std::string base_service_installer::get_home_directory() {
     return config_.get_home_directory();
 }
 
-bool BaseServiceInstaller::execute_system_command(const std::string& command, const std::string& operation_desc) {
+bool base_service_installer::execute_system_command(const std::string& command, const std::string& operation_desc) {
     int result = std::system(command.c_str());
     
     if (result != 0) {
@@ -104,7 +104,7 @@ bool BaseServiceInstaller::execute_system_command(const std::string& command, co
     return true;
 }
 
-bool BaseServiceInstaller::copy_binary_to_install_path(bool system_wide) {
+bool base_service_installer::copy_binary_to_install_path(bool system_wide) {
     std::string current_binary = get_current_binary_path();
     std::string target_binary = get_binary_install_path(system_wide);
     
@@ -133,7 +133,7 @@ bool BaseServiceInstaller::copy_binary_to_install_path(bool system_wide) {
     }
 }
 
-bool BaseServiceInstaller::install_service(InstallMode mode) {
+bool base_service_installer::install_service(InstallMode mode) {
     InstallMode actual_mode = mode;
     if (mode == InstallMode::AUTO) {
         actual_mode = get_recommended_install_mode();
@@ -174,7 +174,7 @@ bool BaseServiceInstaller::install_service(InstallMode mode) {
     }
 }
 
-bool BaseServiceInstaller::uninstall_service() {
+bool base_service_installer::uninstall_service() {
     spdlog::info("Uninstalling {} service using {}", config_.get_service_identifier(), get_init_system_name());
     
     // Only try to uninstall based on current privileges
@@ -221,7 +221,7 @@ bool BaseServiceInstaller::uninstall_service() {
     return success;
 }
 
-BaseServiceInstaller::ServiceStatus BaseServiceInstaller::get_service_status() {
+base_service_installer::ServiceStatus base_service_installer::get_service_status() {
     // Check both system and user installations
     bool system_wide = can_install_system_service();
     
@@ -238,7 +238,7 @@ BaseServiceInstaller::ServiceStatus BaseServiceInstaller::get_service_status() {
     }
 }
 
-BaseServiceInstaller::ServiceStatus BaseServiceInstaller::check_service_status(bool system_wide) {
+base_service_installer::ServiceStatus base_service_installer::check_service_status(bool system_wide) {
     try {
         return check_service_status_impl(system_wide);
     } catch (const std::exception& e) {
@@ -247,7 +247,7 @@ BaseServiceInstaller::ServiceStatus BaseServiceInstaller::check_service_status(b
     }
 }
 
-bool BaseServiceInstaller::start_service() {
+bool base_service_installer::start_service() {
     spdlog::info("Starting {} service using {}", config_.get_service_identifier(), get_init_system_name());
     try {
         bool result = start_service_impl();
@@ -263,7 +263,7 @@ bool BaseServiceInstaller::start_service() {
     }
 }
 
-bool BaseServiceInstaller::stop_service() {
+bool base_service_installer::stop_service() {
     spdlog::info("Stopping {} service using {}", config_.get_service_identifier(), get_init_system_name());
     try {
         bool result = stop_service_impl();

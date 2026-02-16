@@ -44,19 +44,19 @@ struct ParseResult {
     std::string error_message;
 };
 
-class ArgumentParser {
+class argument_parser {
 public:
-    ArgumentParser();
-    
+    argument_parser();
+
     ParseResult parse(int argc, char* argv[]);
     void show_help(const std::string& command = "") const;
-    
+
 private:
     void show_general_help() const;
     void show_install_help() const;
-    
+
     ParseResult::Command string_to_command(const std::string& cmd) const;
-    
+
 };
 
 } // namespace thinr::cli

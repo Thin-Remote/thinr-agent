@@ -10,26 +10,26 @@
 
 namespace thinr::installer {
 
-std::unique_ptr<BaseServiceInstaller> ServiceInstallerFactory::create() {
+std::unique_ptr<base_service_installer> service_installer_factory::create() {
     std::string init_system = detect_init_system();
     spdlog::debug("Detected init system: {}", init_system);
-    
+
     if (init_system == "systemd") {
-        return std::make_unique<SystemdServiceInstaller>();
+        return std::make_unique<systemd_service_installer>();
     } else if (init_system == "launchd") {
-        return std::make_unique<LaunchdServiceInstaller>();
+        return std::make_unique<launchd_service_installer>();
     } else if (init_system == "OpenRC") {
-        return std::make_unique<OpenRCServiceInstaller>();
+        return std::make_unique<openrc_service_installer>();
     } else if (init_system == "SysV init") {
-        return std::make_unique<SysVServiceInstaller>();
+        return std::make_unique<sysv_service_installer>();
     } else if (init_system == "Upstart") {
-        return std::make_unique<UpstartServiceInstaller>();
+        return std::make_unique<upstart_service_installer>();
     } else {
         throw std::runtime_error("Unsupported init system: " + init_system);
     }
 }
 
-std::string ServiceInstallerFactory::detect_init_system() {
+std::string service_installer_factory::detect_init_system() {
     // Check if running on macOS (Darwin) - uses launchd
     struct utsname system_info;
     if (uname(&system_info) == 0) {

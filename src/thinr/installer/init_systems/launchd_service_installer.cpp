@@ -9,15 +9,15 @@
 
 namespace thinr::installer {
 
-std::string LaunchdServiceInstaller::get_service_file_path(bool system_wide) {
+std::string launchd_service_installer::get_service_file_path(bool system_wide) {
     return config_.get_launchd_plist_path(system_wide);
 }
 
-std::string LaunchdServiceInstaller::get_launchd_identifier() const {
+std::string launchd_service_installer::get_launchd_identifier() const {
     return config_.get_launchd_identifier();
 }
 
-bool LaunchdServiceInstaller::install_service_impl(bool system_wide) {
+bool launchd_service_installer::install_service_impl(bool system_wide) {
     // Generate plist file content
     std::string plist_content = generate_service_file(system_wide);
     std::string plist_file_path = get_service_file_path(system_wide);
@@ -63,7 +63,7 @@ bool LaunchdServiceInstaller::install_service_impl(bool system_wide) {
     return true;
 }
 
-bool LaunchdServiceInstaller::uninstall_service_impl(bool system_wide) {
+bool launchd_service_installer::uninstall_service_impl(bool system_wide) {
     std::string identifier = get_launchd_identifier();
     std::string plist_file_path = get_service_file_path(system_wide);
     
@@ -92,7 +92,7 @@ bool LaunchdServiceInstaller::uninstall_service_impl(bool system_wide) {
     return true;
 }
 
-bool LaunchdServiceInstaller::start_service_impl() {
+bool launchd_service_installer::start_service_impl() {
     std::string identifier = get_launchd_identifier();
     
     // Try to start the service using launchctl
@@ -114,7 +114,7 @@ bool LaunchdServiceInstaller::start_service_impl() {
     }
 }
 
-bool LaunchdServiceInstaller::stop_service_impl() {
+bool launchd_service_installer::stop_service_impl() {
     std::string identifier = get_launchd_identifier();
     
     // Try to stop the service using launchctl
@@ -122,7 +122,7 @@ bool LaunchdServiceInstaller::stop_service_impl() {
     return execute_system_command(stop_cmd, "launchctl stop");
 }
 
-LaunchdServiceInstaller::ServiceStatus LaunchdServiceInstaller::check_service_status_impl(bool system_wide) {
+launchd_service_installer::ServiceStatus launchd_service_installer::check_service_status_impl(bool system_wide) {
     std::string plist_file_path = get_service_file_path(system_wide);
     
     // Check if plist file exists
@@ -150,7 +150,7 @@ LaunchdServiceInstaller::ServiceStatus LaunchdServiceInstaller::check_service_st
     }
 }
 
-std::string LaunchdServiceInstaller::generate_service_file(bool system_wide) {
+std::string launchd_service_installer::generate_service_file(bool system_wide) {
     std::string binary_path = config_.get_binary_install_path(system_wide);
     std::string config_path = config_.get_config_path(system_wide);
     std::string username = get_username();

@@ -42,6 +42,7 @@ jobs:
       matrix:
         target: [
           "x86_64-linux-musl",
+          "i386-linux-musl",
           "i686-linux-musl",
           "armv5l-linux-musleabi",
           "armv7-linux-musleabihf",
@@ -126,6 +127,7 @@ jobs:
       matrix:
         target: [
           "x86_64-linux-musl",
+          "i386-linux-musl",
           "i686-linux-musl",
           "armv5l-linux-musleabi",
           "armv7-linux-musleabihf",

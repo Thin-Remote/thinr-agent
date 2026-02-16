@@ -12,7 +12,7 @@
 
 namespace thinr::config {
 
-ConfigManager::ConfigManager() {
+config_manager::config_manager() {
     // Try system-wide config first, fall back to user config
     if (geteuid() == 0) {
         config_path_ = installer::InstallationConfig::SYSTEM_CONFIG_PATH;
@@ -21,11 +21,11 @@ ConfigManager::ConfigManager() {
     }
 }
 
-ConfigManager::ConfigManager(const std::string& config_path) 
+config_manager::config_manager(const std::string& config_path) 
     : config_path_(expand_path(config_path)) {
 }
 
-std::string ConfigManager::expand_path(const std::string& path) {
+std::string config_manager::expand_path(const std::string& path) {
     if (path.empty() || path[0] != '~') {
         return path;
     }
@@ -45,11 +45,11 @@ std::string ConfigManager::expand_path(const std::string& path) {
     return std::string(home) + path.substr(1);
 }
 
-bool ConfigManager::exists() const {
+bool config_manager::exists() const {
     return std::filesystem::exists(config_path_);
 }
 
-void ConfigManager::ensure_config_directory() {
+void config_manager::ensure_config_directory() {
     std::filesystem::path config_file(config_path_);
     std::filesystem::path config_dir = config_file.parent_path();
     
@@ -66,7 +66,7 @@ void ConfigManager::ensure_config_directory() {
     }
 }
 
-void ConfigManager::save(const DeviceCredentials& credentials) {
+void config_manager::save(const DeviceCredentials& credentials) {
     if (!credentials.is_valid()) {
         throw std::invalid_argument("Invalid device credentials");
     }
@@ -95,7 +95,7 @@ void ConfigManager::save(const DeviceCredentials& credentials) {
     spdlog::info("Configuration saved to: {}", config_path_);
 }
 
-DeviceCredentials ConfigManager::load() {
+DeviceCredentials config_manager::load() {
     if (!exists()) {
         throw std::runtime_error("Configuration file does not exist: " + config_path_);
     }
@@ -121,14 +121,14 @@ DeviceCredentials ConfigManager::load() {
     return credentials;
 }
 
-void ConfigManager::remove() {
+void config_manager::remove() {
     if (exists()) {
         std::filesystem::remove(config_path_);
         spdlog::info("Configuration removed: {}", config_path_);
     }
 }
 
-void ConfigManager::encrypt_and_save(const nlohmann::json& config) {
+void config_manager::encrypt_and_save(const nlohmann::json& config) {
     // For now, implement basic encryption
     // In production, use proper key derivation and stronger encryption
     
@@ -150,7 +150,7 @@ void ConfigManager::encrypt_and_save(const nlohmann::json& config) {
     file.close();
 }
 
-nlohmann::json ConfigManager::decrypt_and_load() {
+nlohmann::json config_manager::decrypt_and_load() {
     std::ifstream file(config_path_);
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open config file for reading: " + config_path_);
@@ -170,7 +170,7 @@ nlohmann::json ConfigManager::decrypt_and_load() {
     return config;
 }
 
-std::string ConfigManager::encrypt_token(const std::string& token) {
+std::string config_manager::encrypt_token(const std::string& token) {
     // Simple XOR encryption for now
     // In production, use proper AES encryption with key derivation
     std::string encrypted = token;
@@ -189,7 +189,7 @@ std::string ConfigManager::encrypt_token(const std::string& token) {
     return ss.str();
 }
 
-std::string ConfigManager::decrypt_token(const std::string& encrypted_token) {
+std::string config_manager::decrypt_token(const std::string& encrypted_token) {
     // Convert from hex
     std::string binary;
     for (size_t i = 0; i < encrypted_token.length(); i += 2) {

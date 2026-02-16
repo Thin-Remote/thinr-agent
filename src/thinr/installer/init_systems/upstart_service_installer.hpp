@@ -7,10 +7,10 @@
 
 namespace thinr::installer {
 
-class UpstartServiceInstaller : public BaseServiceInstaller {
+class upstart_service_installer : public base_service_installer {
 public:
-    UpstartServiceInstaller() = default;
-    ~UpstartServiceInstaller() = default;
+    upstart_service_installer() = default;
+    ~upstart_service_installer() = default;
     
 protected:
     // Implement pure virtual methods

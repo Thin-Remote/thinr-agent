@@ -6,3 +6,4 @@ cmake-*
 .vscode
 .claude
 *_bk
+/build/

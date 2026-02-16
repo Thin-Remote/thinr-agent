@@ -23,7 +23,7 @@ namespace thinr::installer {
 // OAuth2 Device Flow Client ID
 static const std::string OAUTH2_CLIENT_ID = "3b40164d28730e416cbc";
 
-InteractiveSetup::InteractiveSetup() 
+interactive_setup::interactive_setup() 
     : config_manager_(),  // Use default constructor to get proper config path
       service_installer_()  {
     // Set up SSL verification callback
@@ -47,7 +47,7 @@ InteractiveSetup::InteractiveSetup()
     );
 }
 
-bool InteractiveSetup::run() {
+bool interactive_setup::run() {
     try {
         // Ensure stdin is in a clean state at the start
         std::cin.clear();
@@ -167,11 +167,11 @@ bool InteractiveSetup::run() {
     }
 }
 
-void InteractiveSetup::show_banner() {
+void interactive_setup::show_banner() {
     utils::Console::printBanner("ThinRemote", "");
 }
 
-void InteractiveSetup::show_system_info() {
+void interactive_setup::show_system_info() {
     utils::Console::printSectionHeader("System Information", "💻");
     
     struct utsname system_info;
@@ -192,12 +192,12 @@ void InteractiveSetup::show_system_info() {
     }
 }
 
-bool InteractiveSetup::confirm_connectivity_test() {
+bool interactive_setup::confirm_connectivity_test() {
     utils::Console::printSectionHeader("Getting Started", "🚀");
     return confirm("Configure ThinRemote connection?", true);
 }
 
-MainMenuOption InteractiveSetup::show_main_menu() {
+MainMenuOption interactive_setup::show_main_menu() {
     utils::Console::printSectionHeader("What would you like to do?", "🚀");
     
     std::vector<std::string> options = {
@@ -218,7 +218,7 @@ MainMenuOption InteractiveSetup::show_main_menu() {
     }
 }
 
-AuthMethod InteractiveSetup::select_auth_method() {
+AuthMethod interactive_setup::select_auth_method() {
     std::vector<std::string> options = {
         "Browser authentication (recommended)",
         "Username and password",
@@ -237,7 +237,7 @@ AuthMethod InteractiveSetup::select_auth_method() {
     }
 }
 
-config::DeviceCredentials InteractiveSetup::authenticate() {
+config::DeviceCredentials interactive_setup::authenticate() {
     AuthMethod method = AuthMethod::PASSWORD_FLOW; // Will be set on first iteration
     bool first_time = true;
     
@@ -293,7 +293,7 @@ config::DeviceCredentials InteractiveSetup::authenticate() {
     }
 }
 
-config::DeviceCredentials InteractiveSetup::password_flow_auth() {
+config::DeviceCredentials interactive_setup::password_flow_auth() {
     utils::Console::printSectionHeader("Username and password authentication", "🔐");
     
     std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
@@ -352,7 +352,7 @@ config::DeviceCredentials InteractiveSetup::password_flow_auth() {
     }
 }
 
-config::DeviceCredentials InteractiveSetup::auto_provision_auth() {
+config::DeviceCredentials interactive_setup::auto_provision_auth() {
     utils::Console::printSectionHeader("Auto-provisioning token authentication", "🔑");
     
     std::string token = read_input("Provisioning token: ");
@@ -412,7 +412,7 @@ config::DeviceCredentials InteractiveSetup::auto_provision_auth() {
     }
 }
 
-config::DeviceCredentials InteractiveSetup::device_flow_auth() {
+config::DeviceCredentials interactive_setup::device_flow_auth() {
     utils::Console::printSectionHeader("Browser authentication", "🌐");
     
     std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
@@ -508,7 +508,7 @@ config::DeviceCredentials InteractiveSetup::device_flow_auth() {
     }
 }
 
-config::DeviceCredentials InteractiveSetup::direct_credentials_auth() {
+config::DeviceCredentials interactive_setup::direct_credentials_auth() {
     utils::Console::printSectionHeader("Direct device credentials", "🔧");
     
     config::DeviceCredentials credentials;
@@ -521,7 +521,7 @@ config::DeviceCredentials InteractiveSetup::direct_credentials_auth() {
     return credentials;
 }
 
-bool InteractiveSetup::test_connection(const config::DeviceCredentials& creds) {
+bool interactive_setup::test_connection(const config::DeviceCredentials& creds) {
     utils::Console::printSectionHeader("Connection Test", "🔗");
     std::cout << utils::Console::loading("Testing connection...") << "\n";
 
@@ -531,7 +531,7 @@ bool InteractiveSetup::test_connection(const config::DeviceCredentials& creds) {
         spdlog::set_level(spdlog::level::off);
         
         // Create temporary agent for testing
-        agent::Agent test_agent(creds);
+        agent::agent test_agent(creds);
 
         // Start agent in a separate thread for testing
         test_agent.start();
@@ -595,38 +595,38 @@ bool InteractiveSetup::test_connection(const config::DeviceCredentials& creds) {
     }
 }
 
-std::pair<bool, bool> InteractiveSetup::offer_service_installation(const config::DeviceCredentials& credentials) {
+std::pair<bool, bool> interactive_setup::offer_service_installation(const config::DeviceCredentials& credentials) {
     utils::Console::printSectionHeader("Installation Options", "⚙️");
     
     // Show current service status
     auto status = service_installer_.get_service_status();
     std::string status_text;
     switch (status) {
-        case ServiceInstaller::ServiceStatus::NOT_INSTALLED:
+        case service_installer::ServiceStatus::NOT_INSTALLED:
             status_text = "Not installed";
             break;
-        case ServiceInstaller::ServiceStatus::INSTALLED_STOPPED:
+        case service_installer::ServiceStatus::INSTALLED_STOPPED:
             status_text = "Installed but stopped";
             break;
-        case ServiceInstaller::ServiceStatus::INSTALLED_RUNNING:
+        case service_installer::ServiceStatus::INSTALLED_RUNNING:
             status_text = "Installed and running";
             break;
-        case ServiceInstaller::ServiceStatus::UNKNOWN:
+        case service_installer::ServiceStatus::UNKNOWN:
             status_text = "Unknown";
             break;
     }
     
     // Only show status if it's meaningful to the user (i.e., something is already installed)
-    if (status != ServiceInstaller::ServiceStatus::NOT_INSTALLED) {
+    if (status != service_installer::ServiceStatus::NOT_INSTALLED) {
         std::cout << utils::Console::cyan("Current status: ") << status_text << "\n\n";
     }
     
-    if (status == ServiceInstaller::ServiceStatus::INSTALLED_RUNNING) {
+    if (status == service_installer::ServiceStatus::INSTALLED_RUNNING) {
         std::cout << utils::Console::success("Service is already installed and running") << "\n";
         return {true, true}; // Configuration saved, service installed
     }
     
-    if (status == ServiceInstaller::ServiceStatus::INSTALLED_STOPPED) {
+    if (status == service_installer::ServiceStatus::INSTALLED_STOPPED) {
         if (confirm("Service is installed but not running. Start it?", true)) {
             if (service_installer_.start_service()) {
                 std::cout << utils::Console::success("Service started successfully") << "\n";
@@ -663,7 +663,7 @@ std::pair<bool, bool> InteractiveSetup::offer_service_installation(const config:
     }
 }
 
-bool InteractiveSetup::install_as_service(const config::DeviceCredentials& credentials) {
+bool interactive_setup::install_as_service(const config::DeviceCredentials& credentials) {
     // First save configuration - service needs it to run
     std::cout << "\n" << utils::Console::loading("Saving configuration...") << "\n";
     try {
@@ -695,7 +695,7 @@ bool InteractiveSetup::install_as_service(const config::DeviceCredentials& crede
     }
 }
 
-bool InteractiveSetup::save_configuration_only(const config::DeviceCredentials& credentials) {
+bool interactive_setup::save_configuration_only(const config::DeviceCredentials& credentials) {
     std::cout << "\n" << utils::Console::loading("Saving configuration...") << "\n";
     
     try {
@@ -710,7 +710,7 @@ bool InteractiveSetup::save_configuration_only(const config::DeviceCredentials& 
     }
 }
 
-void InteractiveSetup::test_interactive_menu() {
+void interactive_setup::test_interactive_menu() {
     std::vector<std::string> options = {
         "Install as service (recommended) - Starts automatically when system boots",
         "Save configuration for manual use - Run when needed, full control",
@@ -737,7 +737,7 @@ void InteractiveSetup::test_interactive_menu() {
     }
 }
 
-std::string InteractiveSetup::get_default_device_id() {
+std::string interactive_setup::get_default_device_id() {
     // Use the new device ID generator
     std::string generated_id = utils::DeviceIdGenerator::generate();
     
@@ -756,7 +756,7 @@ std::string InteractiveSetup::get_default_device_id() {
     return generated_id;
 }
 
-std::string InteractiveSetup::get_default_device_name() {
+std::string interactive_setup::get_default_device_name() {
     // Get the full hostname as the default device name
     boost::system::error_code ec;
     std::string hostname = boost::asio::ip::host_name(ec);
@@ -777,7 +777,7 @@ std::string InteractiveSetup::get_default_device_name() {
     return hostname;
 }
 
-std::string InteractiveSetup::detect_distribution() {
+std::string interactive_setup::detect_distribution() {
     // Try /etc/os-release first (most common)
     std::ifstream os_release("/etc/os-release");
     if (os_release.is_open()) {
@@ -855,7 +855,7 @@ std::string InteractiveSetup::detect_distribution() {
     return "Unknown";
 }
 
-std::string InteractiveSetup::detect_init_system() {
+std::string interactive_setup::detect_init_system() {
     // Check if running on macOS (Darwin) - uses launchd
     struct utsname system_info;
     if (uname(&system_info) == 0) {
@@ -915,7 +915,7 @@ std::string InteractiveSetup::detect_init_system() {
     return "Unknown";
 }
 
-std::string InteractiveSetup::read_input(const std::string& prompt, bool hide_input) {
+std::string interactive_setup::read_input(const std::string& prompt, bool hide_input) {
     if (hide_input) {
         return read_password(prompt);
     }
@@ -926,7 +926,7 @@ std::string InteractiveSetup::read_input(const std::string& prompt, bool hide_in
     return input;
 }
 
-std::string InteractiveSetup::read_password(const std::string& prompt) {
+std::string interactive_setup::read_password(const std::string& prompt) {
     std::cout << utils::Console::userPrompt() << prompt << " ";
     std::cout.flush(); // Ensure prompt is displayed immediately
 
@@ -959,15 +959,15 @@ std::string InteractiveSetup::read_password(const std::string& prompt) {
     return password;
 }
 
-bool InteractiveSetup::confirm(const std::string& prompt, bool default_yes) {
+bool interactive_setup::confirm(const std::string& prompt, bool default_yes) {
     return utils::Console::confirm(prompt, default_yes);
 }
 
-void InteractiveSetup::clear_screen() {
+void interactive_setup::clear_screen() {
     utils::Console::clear();
 }
 
-InteractiveSetup::ConflictResolution InteractiveSetup::handle_device_conflict(const std::string& device_id) {
+interactive_setup::ConflictResolution interactive_setup::handle_device_conflict(const std::string& device_id) {
     std::cout << utils::Console::warning("Device '") << device_id << "' already exists." << "\n\n";
     
     std::vector<std::string> options = {
@@ -986,7 +986,7 @@ InteractiveSetup::ConflictResolution InteractiveSetup::handle_device_conflict(co
     }
 }
 
-config::DeviceCredentials InteractiveSetup::provision_with_conflict_resolution(
+config::DeviceCredentials interactive_setup::provision_with_conflict_resolution(
     const std::string& host,
     const std::string& username,
     const std::string& initial_device_id,
@@ -1057,7 +1057,7 @@ config::DeviceCredentials InteractiveSetup::provision_with_conflict_resolution(
     throw std::runtime_error("Failed to provision device");
 }
 
-config::DeviceCredentials InteractiveSetup::auto_provision_with_conflict_resolution(
+config::DeviceCredentials interactive_setup::auto_provision_with_conflict_resolution(
     const std::string& token,
     const std::string& initial_device_id,
     const std::string& device_name) {

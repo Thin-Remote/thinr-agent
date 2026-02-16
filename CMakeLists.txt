@@ -107,20 +107,37 @@ FetchContent_MakeAvailable(spdlog)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-# httplib
-FetchContent_Declare(
-        httplib
-        GIT_REPOSITORY  https://github.com/yhirose/cpp-httplib.git
-        GIT_TAG         v0.16.0
-)
-FetchContent_MakeAvailable(httplib)
-
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
         GIT_TAG        develop
 )
 FetchContent_MakeAvailable(thinger_iotmp)
+
+# Add Homebrew lib paths for transitive dependencies (zstd, icu, etc.)
+if(APPLE)
+    execute_process(
+        COMMAND brew --prefix
+        OUTPUT_VARIABLE HOMEBREW_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(HOMEBREW_PREFIX)
+        link_directories(${HOMEBREW_PREFIX}/lib)
+        message(STATUS "Homebrew lib path: ${HOMEBREW_PREFIX}/lib")
+    endif()
+    # ICU is keg-only in Homebrew
+    execute_process(
+        COMMAND brew --prefix icu4c
+        OUTPUT_VARIABLE ICU_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(ICU_PREFIX)
+        link_directories(${ICU_PREFIX}/lib)
+        message(STATUS "ICU lib path: ${ICU_PREFIX}/lib")
+    endif()
+endif()
 
 # Source files
 file(GLOB_RECURSE SOURCE_FILES
@@ -136,7 +153,6 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     thinger_iotmp
-    httplib::httplib
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     Boost::program_options

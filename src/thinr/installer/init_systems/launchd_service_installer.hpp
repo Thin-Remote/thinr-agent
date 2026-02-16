@@ -7,10 +7,10 @@
 
 namespace thinr::installer {
 
-class LaunchdServiceInstaller : public BaseServiceInstaller {
+class launchd_service_installer : public base_service_installer {
 public:
-    LaunchdServiceInstaller() = default;
-    ~LaunchdServiceInstaller() = default;
+    launchd_service_installer() = default;
+    ~launchd_service_installer() = default;
     
 protected:
     // Implement pure virtual methods

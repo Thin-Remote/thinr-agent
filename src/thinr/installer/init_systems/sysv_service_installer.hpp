@@ -9,10 +9,10 @@
 
 namespace thinr::installer {
 
-class SysVServiceInstaller : public BaseServiceInstaller {
+class sysv_service_installer : public base_service_installer {
 public:
-    SysVServiceInstaller() = default;
-    ~SysVServiceInstaller() = default;
+    sysv_service_installer() = default;
+    ~sysv_service_installer() = default;
     
 protected:
     // Implement pure virtual methods

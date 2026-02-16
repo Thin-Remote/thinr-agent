@@ -16,9 +16,9 @@
 
 namespace thinr::cli {
 
-CommandHandler::CommandHandler() = default;
+command_handler::command_handler() = default;
 
-int CommandHandler::execute(const ParseResult& parse_result) {
+int command_handler::execute(const ParseResult& parse_result) {
     // Determine appropriate verbosity level based on mode
     int verbosity_level = parse_result.verbosity_level;
     
@@ -45,17 +45,17 @@ int CommandHandler::execute(const ParseResult& parse_result) {
     
     // Update config manager if custom path provided
     if (!parse_result.config_path.empty()) {
-        config_manager_ = config::ConfigManager(parse_result.config_path);
+        config_manager_ = config::config_manager(parse_result.config_path);
     }
     
     // Handle parse errors
     if (!parse_result.success) {
         std::cerr << parse_result.error_message << "\n";
-        ArgumentParser parser;
+        argument_parser parser;
         parser.show_help();
         return 1;
     }
-    
+
     // Configure SSL for commands that need HTTPS connectivity
     bool needs_ssl = false;
     switch (parse_result.command) {
@@ -81,7 +81,7 @@ int CommandHandler::execute(const ParseResult& parse_result) {
     switch (parse_result.command) {
         case ParseResult::Command::HELP:
             {
-                ArgumentParser parser;
+                argument_parser parser;
                 parser.show_help(parse_result.command_str);
                 return 0;
             }
@@ -112,7 +112,7 @@ int CommandHandler::execute(const ParseResult& parse_result) {
             
         case ParseResult::Command::UNKNOWN:
             std::cerr << "Unknown command: " << parse_result.command_str << "\n";
-            ArgumentParser parser;
+            argument_parser parser;
             parser.show_help();
             return 1;
     }
@@ -120,7 +120,7 @@ int CommandHandler::execute(const ParseResult& parse_result) {
     return 0;
 }
 
-int CommandHandler::handle_install(const InstallOptions& options) {
+int command_handler::handle_install(const InstallOptions& options) {
     utils::Console::printSectionHeader("ThinRemote Fast Installation", "🚀");
     
     // Check if already configured
@@ -141,7 +141,7 @@ int CommandHandler::handle_install(const InstallOptions& options) {
     return success ? 0 : 1;
 }
 
-bool CommandHandler::install_with_token(const InstallOptions& options) {
+bool command_handler::install_with_token(const InstallOptions& options) {
     std::string final_device_id = determine_device_id(options.device_id);
     
     std::cout << utils::Console::cyan("Target server: ") << options.host << "\n\n";
@@ -199,7 +199,7 @@ bool CommandHandler::install_with_token(const InstallOptions& options) {
     }
 }
 
-bool CommandHandler::install_interactive(const InstallOptions& options) {
+bool command_handler::install_interactive(const InstallOptions& options) {
     if (!is_interactive_terminal()) {
         std::cout << utils::Console::error("Interactive authentication required but not in interactive terminal.") << "\n";
         std::cout << "Use --token flag for non-interactive installation.\n";
@@ -275,7 +275,7 @@ bool CommandHandler::install_interactive(const InstallOptions& options) {
     }
 }
 
-bool CommandHandler::save_and_install_service(const config::DeviceCredentials& credentials, bool no_start) {
+bool command_handler::save_and_install_service(const config::DeviceCredentials& credentials, bool no_start) {
     // Save configuration
     std::cout << utils::Console::loading("Saving configuration...") << "\n";
     config_manager_.save(credentials);
@@ -284,7 +284,7 @@ bool CommandHandler::save_and_install_service(const config::DeviceCredentials& c
     
     // Install service
     std::cout << utils::Console::loading("Installing service...") << "\n";
-    installer::ServiceInstaller service_installer;
+    installer::service_installer service_installer;
     
     if (!service_installer.install_service()) {
         std::cout << utils::Console::error("Failed to install service") << "\n";
@@ -310,7 +310,7 @@ bool CommandHandler::save_and_install_service(const config::DeviceCredentials& c
     return true;
 }
 
-std::string CommandHandler::determine_device_id(const std::string& provided_device_id) {
+std::string command_handler::determine_device_id(const std::string& provided_device_id) {
     if (!provided_device_id.empty()) {
         return provided_device_id;
     }
@@ -323,7 +323,7 @@ std::string CommandHandler::determine_device_id(const std::string& provided_devi
     return generated_id;
 }
 
-int CommandHandler::handle_uninstall() {
+int command_handler::handle_uninstall() {
     if (!is_interactive_terminal()) {
         spdlog::error("Uninstall command requires an interactive terminal");
         return 1;
@@ -333,19 +333,19 @@ int CommandHandler::handle_uninstall() {
     return 0;
 }
 
-int CommandHandler::handle_status() {
+int command_handler::handle_status() {
     std::cout << "Checking ThinRemote status...\n";
     spdlog::error("Status check not yet implemented");
     return 1;
 }
 
-int CommandHandler::handle_test() {
+int command_handler::handle_test() {
     std::cout << "Testing connection...\n";
     spdlog::error("Connection test not yet implemented");
     return 1;
 }
 
-int CommandHandler::handle_reconfigure() {
+int command_handler::handle_reconfigure() {
     if (!is_interactive_terminal()) {
         spdlog::error("Reconfigure command requires an interactive terminal");
         return 1;
@@ -357,17 +357,17 @@ int CommandHandler::handle_reconfigure() {
         std::cout << "Existing configuration removed.\n";
     }
     
-    installer::InteractiveSetup setup;
+    installer::interactive_setup setup;
     return setup.run() ? 0 : 1;
 }
 
-int CommandHandler::handle_test_menu() {
-    installer::InteractiveSetup setup;
+int command_handler::handle_test_menu() {
+    installer::interactive_setup setup;
     setup.test_interactive_menu();
     return 0;
 }
 
-int CommandHandler::handle_no_command(const std::string& config_path) {
+int command_handler::handle_no_command(const std::string& config_path) {
     // No command specified - determine mode based on configuration and terminal
     if (config_manager_.exists()) {
         // Configuration exists - check if service is installed and running
@@ -375,8 +375,8 @@ int CommandHandler::handle_no_command(const std::string& config_path) {
         
         // If service is installed and we're in interactive mode, show management options
         // BUT skip this if a specific config file was provided via --config
-        if ((service_status == installer::ServiceInstaller::ServiceStatus::INSTALLED_RUNNING ||
-             service_status == installer::ServiceInstaller::ServiceStatus::INSTALLED_STOPPED) &&
+        if ((service_status == installer::service_installer::ServiceStatus::INSTALLED_RUNNING ||
+             service_status == installer::service_installer::ServiceStatus::INSTALLED_STOPPED) &&
             is_interactive_terminal() &&
             config_path.empty()) {  // Only show menu if no explicit config was provided
             
@@ -391,7 +391,7 @@ int CommandHandler::handle_no_command(const std::string& config_path) {
         spdlog::info("Configuration found, starting agent mode");
         try {
             auto credentials = config_manager_.load();
-            agent::Agent agent(credentials);
+            agent::agent agent(credentials);
             agent.start();
             agent.wait();
         } catch (const std::exception& e) {
@@ -419,18 +419,18 @@ int CommandHandler::handle_no_command(const std::string& config_path) {
         
         // Start interactive setup
         spdlog::info("No configuration found, starting interactive setup");
-        installer::InteractiveSetup setup;
+        installer::interactive_setup setup;
         return setup.run() ? 0 : 1;
     }
     
     return 0;
 }
 
-bool CommandHandler::is_interactive_terminal() const {
+bool command_handler::is_interactive_terminal() const {
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 }
 
-std::string CommandHandler::read_password_securely() {
+std::string command_handler::read_password_securely() {
     std::cout << utils::Console::userPrompt() << "Password: ";
     std::string password;
     
@@ -447,7 +447,7 @@ std::string CommandHandler::read_password_securely() {
     return password;
 }
 
-void CommandHandler::setup_logging(int verbosity_level) {
+void command_handler::setup_logging(int verbosity_level) {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     
     switch (verbosity_level) {
@@ -460,7 +460,7 @@ void CommandHandler::setup_logging(int verbosity_level) {
     }
 }
 
-bool CommandHandler::check_system_installation() const {
+bool command_handler::check_system_installation() const {
     // Check if system-wide config exists
     std::filesystem::path system_config = "/etc/thinr-agent/config.json";
     if (!std::filesystem::exists(system_config)) {
@@ -468,20 +468,20 @@ bool CommandHandler::check_system_installation() const {
     }
     
     // Check if system-wide service is installed
-    config::ConfigManager system_config_manager(system_config.string());
-    installer::ServiceInstaller system_service_installer;
-    
+    config::config_manager system_config_manager(system_config.string());
+    installer::service_installer system_service_installer;
+
     auto status = system_service_installer.get_service_status_for_privilege(true); // Check system-wide
-    return status != installer::ServiceInstaller::ServiceStatus::NOT_INSTALLED;
+    return status != installer::service_installer::ServiceStatus::NOT_INSTALLED;
 }
 
-int CommandHandler::handle_system_installation_detected() {
+int command_handler::handle_system_installation_detected() {
     // Get system-wide service status
-    installer::ServiceInstaller system_service_installer;
+    installer::service_installer system_service_installer;
     auto status = system_service_installer.get_service_status_for_privilege(true);
-    
+
     // Get device info from system config
-    config::ConfigManager system_config_manager("/etc/thinr-agent/config.json");
+    config::config_manager system_config_manager("/etc/thinr-agent/config.json");
     std::string device_id = "unknown";
     std::string status_text = "Unknown";
     
@@ -493,10 +493,10 @@ int CommandHandler::handle_system_installation_detected() {
     }
     
     switch (status) {
-        case installer::ServiceInstaller::ServiceStatus::INSTALLED_RUNNING:
+        case installer::service_installer::ServiceStatus::INSTALLED_RUNNING:
             status_text = "Running";
             break;
-        case installer::ServiceInstaller::ServiceStatus::INSTALLED_STOPPED:
+        case installer::service_installer::ServiceStatus::INSTALLED_STOPPED:
             status_text = "Stopped";
             break;
         default:
@@ -521,23 +521,23 @@ int CommandHandler::handle_system_installation_detected() {
     
     if (choice == 1) {
         // User wants to create their own installation
-        installer::InteractiveSetup setup;
+        installer::interactive_setup setup;
         return setup.run() ? 0 : 1;
     }
-    
+
     return 0;
 }
 
-bool CommandHandler::is_running_as_root() const {
+bool command_handler::is_running_as_root() const {
     return geteuid() == 0;
 }
 
-int CommandHandler::handle_no_configuration_but_run(const std::string& config_path) {
+int command_handler::handle_no_configuration_but_run(const std::string& config_path) {
     // This method was referenced but not implemented, adding it
     spdlog::info("Starting agent mode");
     try {
         auto credentials = config_manager_.load();
-        agent::Agent agent(credentials);
+        agent::agent agent(credentials);
         agent.start();
         agent.wait();
     } catch (const std::exception& e) {

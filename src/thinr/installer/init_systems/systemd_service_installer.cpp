@@ -9,25 +9,25 @@
 
 namespace thinr::installer {
 
-std::string SystemdServiceInstaller::get_service_file_path(bool system_wide) {
+std::string systemd_service_installer::get_service_file_path(bool system_wide) {
     return config_.get_systemd_service_path(system_wide);
 }
 
-std::string SystemdServiceInstaller::get_systemctl_command(bool system_wide) const {
+std::string systemd_service_installer::get_systemctl_command(bool system_wide) const {
     return system_wide ? "systemctl" : "systemctl --user";
 }
 
-std::string SystemdServiceInstaller::get_systemctl_command_for_current_context() const {
+std::string systemd_service_installer::get_systemctl_command_for_current_context() const {
     // Check if we need system or user mode based on current permissions
     bool system_wide = can_install_system_service();
     return get_systemctl_command(system_wide);
 }
 
-std::string SystemdServiceInstaller::get_service_name() const {
+std::string systemd_service_installer::get_service_name() const {
     return config_.get_service_identifier() + ".service";
 }
 
-bool SystemdServiceInstaller::install_service_impl(bool system_wide) {
+bool systemd_service_installer::install_service_impl(bool system_wide) {
     // Generate service file content
     std::string service_content = generate_service_file(system_wide);
     std::string service_file_path = get_service_file_path(system_wide);
@@ -66,10 +66,26 @@ bool SystemdServiceInstaller::install_service_impl(bool system_wide) {
         return false;
     }
     
+    // For user services, enable lingering to allow service to start at boot without login
+    if (!system_wide) {
+        std::string username = get_username();
+        std::string linger_cmd = "loginctl enable-linger " + username + " >/dev/null 2>&1";
+        
+        if (execute_system_command(linger_cmd, "enable lingering")) {
+            spdlog::info("Enabled lingering for user {} (service will start at boot)", username);
+            std::cout << utils::Console::success("Auto-start at boot enabled for user " + username) << "\n";
+        } else {
+            spdlog::warn("Could not enable lingering - service won't start automatically at boot");
+            std::cout << utils::Console::warning("Service will only run when you're logged in") << "\n";
+            std::cout << utils::Console::info("To enable auto-start at boot, run: sudo loginctl enable-linger " + username) << "\n";
+            std::cout << utils::Console::info("Alternatively, consider installing service as root") << "\n";
+        }
+    }
+    
     return true;
 }
 
-bool SystemdServiceInstaller::uninstall_service_impl(bool system_wide) {
+bool systemd_service_installer::uninstall_service_impl(bool system_wide) {
     std::string systemctl_cmd = get_systemctl_command(system_wide);
     std::string service_file_path = get_service_file_path(system_wide);
     
@@ -99,27 +115,44 @@ bool SystemdServiceInstaller::uninstall_service_impl(bool system_wide) {
     std::string reload_cmd = systemctl_cmd + " daemon-reload 2>/dev/null";
     execute_system_command(reload_cmd);
     
+    // For user services, optionally disable lingering
+    if (!system_wide) {
+        std::string username = get_username();
+        if (check_lingering_enabled(username)) {
+            std::cout << utils::Console::info("Note: User lingering is still enabled for " + username) << "\n";
+            std::cout << utils::Console::info("To disable auto-start at boot for all user services, run: loginctl disable-linger " + username) << "\n";
+        }
+    }
+    
     return true;
 }
 
-bool SystemdServiceInstaller::start_service_impl() {
+bool systemd_service_installer::start_service_impl() {
     std::string systemctl_cmd = get_systemctl_command_for_current_context();
     std::string start_cmd = systemctl_cmd + " start " + get_service_name();
     return execute_system_command(start_cmd, "systemctl start");
 }
 
-bool SystemdServiceInstaller::stop_service_impl() {
+bool systemd_service_installer::stop_service_impl() {
     std::string systemctl_cmd = get_systemctl_command_for_current_context();
     std::string stop_cmd = systemctl_cmd + " stop " + get_service_name();
     return execute_system_command(stop_cmd, "systemctl stop");
 }
 
-SystemdServiceInstaller::ServiceStatus SystemdServiceInstaller::check_service_status_impl(bool system_wide) {
+systemd_service_installer::ServiceStatus systemd_service_installer::check_service_status_impl(bool system_wide) {
     std::string service_file_path = get_service_file_path(system_wide);
     
     // Check if service file exists
     if (!std::filesystem::exists(service_file_path)) {
         return ServiceStatus::NOT_INSTALLED;
+    }
+    
+    // For user services, check if lingering is enabled
+    if (!system_wide) {
+        std::string username = get_username();
+        if (!check_lingering_enabled(username)) {
+            spdlog::debug("Lingering not enabled for user {} - service won't start at boot", username);
+        }
     }
     
     // Check service status using systemctl
@@ -134,7 +167,7 @@ SystemdServiceInstaller::ServiceStatus SystemdServiceInstaller::check_service_st
     }
 }
 
-std::string SystemdServiceInstaller::generate_service_file(bool system_wide) {
+std::string systemd_service_installer::generate_service_file(bool system_wide) {
     std::string binary_path = config_.get_binary_install_path(system_wide);
     std::string config_path = config_.get_config_path(system_wide);
     std::string username = get_username();
@@ -162,6 +195,13 @@ std::string SystemdServiceInstaller::generate_service_file(bool system_wide) {
     service_content << "WantedBy=" << (system_wide ? "multi-user.target" : "default.target") << "\n";
     
     return service_content.str();
+}
+
+bool systemd_service_installer::check_lingering_enabled(const std::string& username) const {
+    // Check if lingering is enabled for the user
+    std::string check_cmd = "loginctl show-user " + username + " --property=Linger 2>/dev/null | grep -q 'Linger=yes'";
+    int result = std::system(check_cmd.c_str());
+    return result == 0;
 }
 
 } // namespace thinr::installer

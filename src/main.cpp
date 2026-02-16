@@ -28,11 +28,11 @@
 int main(int argc, char* argv[]) {
     try {
         // Parse command line arguments
-        thinr::cli::ArgumentParser parser;
+        thinr::cli::argument_parser parser;
         auto parse_result = parser.parse(argc, argv);
-        
+
         // Execute the command
-        thinr::cli::CommandHandler handler;
+        thinr::cli::command_handler handler;
         int result = handler.execute(parse_result);
         
         // Clean shutdown of spdlog

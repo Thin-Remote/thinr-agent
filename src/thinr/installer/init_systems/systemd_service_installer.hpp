@@ -7,10 +7,10 @@
 
 namespace thinr::installer {
 
-class SystemdServiceInstaller : public BaseServiceInstaller {
+class systemd_service_installer : public base_service_installer {
 public:
-    SystemdServiceInstaller() = default;
-    ~SystemdServiceInstaller() = default;
+    systemd_service_installer() = default;
+    ~systemd_service_installer() = default;
     
 protected:
     // Implement pure virtual methods
@@ -28,6 +28,7 @@ private:
     std::string get_systemctl_command(bool system_wide) const;
     std::string get_systemctl_command_for_current_context() const;
     std::string get_service_name() const;
+    bool check_lingering_enabled(const std::string& username) const;
 };
 
 } // namespace thinr::installer

@@ -9,10 +9,10 @@
 
 namespace thinr::installer {
 
-class ServiceInstallerFactory {
+class service_installer_factory {
 public:
-    static std::unique_ptr<BaseServiceInstaller> create();
-    
+    static std::unique_ptr<base_service_installer> create();
+
 private:
     static std::string detect_init_system();
 };
