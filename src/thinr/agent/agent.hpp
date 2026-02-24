@@ -9,7 +9,6 @@
 #include "thinger/iotmp/extensions/cmd/cmd.hpp"
 #include "thinger/iotmp/extensions/proxy/proxy.hpp"
 #include "thinger/iotmp/extensions/terminal/terminal.hpp"
-#include "thinger/iotmp/extensions/version/version.hpp"
 #include "thinger/iotmp/extensions/fs/filesystem.hpp"
 
 namespace thinr::agent {
@@ -41,14 +40,13 @@ private:
     thinger::iotmp::client client_;
 
     // Extensions
-    std::optional<thinger::iotmp::version> version_;
     std::optional<thinger::iotmp::terminal> shell_;
     std::optional<thinger::iotmp::cmd> cmd_;
     std::optional<thinger::iotmp::proxy> proxy_;
     std::optional<thinger::iotmp::filesystem> filesystem_;
 
     // Extension initialization methods
-    void init_version(const nlohmann::json& config);
+    void init_agent_info();
     void init_shell(const nlohmann::json& config);
     void init_cmd(const nlohmann::json& config);
     void init_proxy(const nlohmann::json& config);

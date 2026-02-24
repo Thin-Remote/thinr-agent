@@ -1,8 +1,10 @@
 #include "agent.hpp"
+#include "../utils/system_info.hpp"
 #include <spdlog/spdlog.h>
 #include <thinger/thinger.h>
 #include <thinger/iotmp/client.hpp>
 #include <thinger/util/logger.hpp>
+#include <sys/utsname.h>
 
 namespace thinr::agent {
 
@@ -23,7 +25,7 @@ agent::agent(const config::DeviceCredentials& credentials)
     
     // Initialize all extensions by default
     nlohmann::json empty_config = {};
-    init_version(empty_config);
+    init_agent_info();
     init_shell(empty_config);
     init_cmd(empty_config);
     init_proxy(empty_config);
@@ -48,7 +50,6 @@ void agent::stop() {
     spdlog::info("Stopping ThinRemote agent");
 
     // Clear extensions
-    version_.reset();
     shell_.reset();
     cmd_.reset();
     proxy_.reset();
@@ -65,12 +66,25 @@ void agent::wait() {
     thinger::asio::get_workers().wait();
 }
 
-void agent::init_version(const nlohmann::json& config) {
-    spdlog::info("Initializing version extension");
-    version_.emplace(client_);
-    
-    // Apply any configuration from config JSON if needed
-    // For example: version_->set_version(config.value("version", "1.0.0"));
+void agent::init_agent_info() {
+    spdlog::info("Initializing agent info extension");
+
+    // Override IOTMP library version with agent version
+    client_["version"] = [](thinger::iotmp::output& out) {
+        out["version"] = AGENT_VERSION;
+    };
+
+    // System information resource
+    client_["system_info"] = [](thinger::iotmp::output& out) {
+        struct utsname info;
+        if (uname(&info) == 0) {
+            out["system"]       = info.sysname;
+            out["architecture"] = info.machine;
+            out["hostname"]     = info.nodename;
+            out["kernel"]       = info.release;
+        }
+        out["os"] = utils::SystemInfo::get_os_description();
+    };
 }
 
 void agent::init_shell(const nlohmann::json& config) {
