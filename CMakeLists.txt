@@ -29,26 +29,29 @@ execute_process(
     ERROR_QUIET
 )
 
-# If git commands failed, use default version
-if(NOT GIT_VERSION)
-    set(GIT_VERSION "v1.0.0")
-    message(WARNING "Git version not found, using default: ${GIT_VERSION}")
-endif()
-
-if(NOT GIT_BRANCH)
-    set(GIT_BRANCH "unknown")
-    message(WARNING "Git branch not found, using default: ${GIT_BRANCH}")
-endif()
-
-# Build version string based on branch
-if(GIT_BRANCH STREQUAL "main")
-    set(AGENT_VERSION "${GIT_VERSION}")
+# Allow CI to override version via -DBUILD_VERSION=...
+if(BUILD_VERSION)
+    set(AGENT_VERSION "${BUILD_VERSION}")
 else()
-    set(AGENT_VERSION "${GIT_BRANCH}-${GIT_VERSION}")
+    # If git commands failed, use default version
+    if(NOT GIT_VERSION)
+        set(GIT_VERSION "v1.0.0")
+        message(WARNING "Git version not found, using default: ${GIT_VERSION}")
+    endif()
+
+    if(NOT GIT_BRANCH)
+        set(GIT_BRANCH "unknown")
+        message(WARNING "Git branch not found, using default: ${GIT_BRANCH}")
+    endif()
+
+    # Build version string based on branch
+    if(GIT_BRANCH STREQUAL "main")
+        set(AGENT_VERSION "${GIT_VERSION}")
+    else()
+        set(AGENT_VERSION "${GIT_BRANCH}-${GIT_VERSION}")
+    endif()
 endif()
 
-message(STATUS "Git branch: ${GIT_BRANCH}")
-message(STATUS "Git version: ${GIT_VERSION}")
 message(STATUS "Agent version: ${AGENT_VERSION}")
 
 # Pass version to source code
