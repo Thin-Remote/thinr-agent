@@ -34,6 +34,11 @@ private:
     bool handle_running_service_choice(int choice);
     bool handle_stopped_service_choice(int choice);
 
+    // Update helpers
+    bool update_service();
+    std::string get_installed_version() const;
+    bool has_update_available() const;
+
     // Uninstall helpers
     bool confirm_uninstall();
     bool remove_configuration_and_data();

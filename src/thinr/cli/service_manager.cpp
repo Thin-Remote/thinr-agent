@@ -5,8 +5,14 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <array>
+#include <cstdio>
 #include <unistd.h>
 #include <spdlog/spdlog.h>
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 namespace thinr::cli {
 
@@ -19,15 +25,25 @@ bool service_manager::show_management_menu() {
     show_service_status();
     
     if (status == installer::service_installer::ServiceStatus::INSTALLED_RUNNING) {
-        std::vector<std::string> options = {
-            "View service logs",
-            "Restart service", 
-            "Stop service and run manually",
-            "Uninstall service and remove configuration",
-            "Exit"
-        };
-        
+        bool update_available = has_update_available();
+
+        std::vector<std::string> options;
+        if (update_available) {
+            options.push_back("Update service to " + std::string(AGENT_VERSION));
+        }
+        options.push_back("View service logs");
+        options.push_back("Restart service");
+        options.push_back("Stop service and run manually");
+        options.push_back("Uninstall service and remove configuration");
+        options.push_back("Exit");
+
         int choice = utils::Console::getUserChoice(options, "What would you like to do?");
+
+        // Adjust choice offset if update option is not shown
+        if (!update_available) {
+            choice += 1;  // shift to match the running_service_choice mapping with update at 1
+        }
+
         return handle_running_service_choice(choice);
         
     } else if (status == installer::service_installer::ServiceStatus::INSTALLED_STOPPED) {
@@ -49,7 +65,7 @@ bool service_manager::show_management_menu() {
 
 void service_manager::show_service_status() const {
     auto status = get_service_status();
-    
+
     std::string status_text;
     switch (status) {
         case installer::service_installer::ServiceStatus::NOT_INSTALLED:
@@ -65,20 +81,37 @@ void service_manager::show_service_status() const {
             status_text = "Unknown";
             break;
     }
-    
-    std::cout << utils::Console::cyan("Service status: ") << status_text << "\n\n";
+
+    std::cout << utils::Console::cyan("Service status: ") << status_text << "\n";
+
+    // Show version info
+    std::string installed_version = get_installed_version();
+    std::string current_version = AGENT_VERSION;
+
+    if (!installed_version.empty()) {
+        std::cout << utils::Console::cyan("Installed version: ") << installed_version << "\n";
+    }
+
+    if (installed_version != current_version) {
+        std::cout << utils::Console::cyan("This binary version: ") << current_version << "\n";
+    }
+
+    std::cout << "\n";
 }
 
 
 bool service_manager::handle_running_service_choice(int choice) {
     switch (choice) {
-        case 1: // View logs
+        case 1: // Update service
+            return update_service();
+
+        case 2: // View logs
             return view_logs();
-            
-        case 2: // Restart service
+
+        case 3: // Restart service
             return restart_service();
-            
-        case 3: // Stop and run manually
+
+        case 4: // Stop and run manually
             std::cout << utils::Console::loading("Stopping service...") << "\n";
             if (service_installer_.stop_service()) {
                 // Give it a moment to fully stop
@@ -100,10 +133,10 @@ bool service_manager::handle_running_service_choice(int choice) {
                 return true; // Return to exit
             }
             
-        case 4: // Uninstall
+        case 5: // Uninstall
             return uninstall_completely();
-            
-        case 5: // Exit
+
+        case 6: // Exit
         default:
             return true; // Exit
     }
@@ -350,5 +383,132 @@ bool service_manager::is_interactive_terminal() const {
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 }
 
+std::string service_manager::get_installed_version() const {
+    bool is_root = (geteuid() == 0);
+    std::string binary_path = const_cast<installer::service_installer&>(service_installer_).get_binary_install_path(is_root);
+
+    if (!std::filesystem::exists(binary_path)) {
+        return {};
+    }
+
+    // Run the installed binary with --version and capture output
+    std::string cmd = binary_path + " --version 2>/dev/null";
+    std::array<char, 256> buffer{};
+    std::string output;
+
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return {};
+
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        output += buffer.data();
+    }
+    pclose(pipe);
+
+    // Parse "thinr-agent version <VERSION>\n"
+    const std::string prefix = "thinr-agent version ";
+    auto pos = output.find(prefix);
+    if (pos == std::string::npos) return {};
+
+    std::string version = output.substr(pos + prefix.size());
+    // Trim trailing whitespace/newlines
+    while (!version.empty() && (version.back() == '\n' || version.back() == '\r' || version.back() == ' ')) {
+        version.pop_back();
+    }
+    return version;
+}
+
+bool service_manager::has_update_available() const {
+    std::string installed = get_installed_version();
+    if (installed.empty()) return false;
+    return installed != std::string(AGENT_VERSION);
+}
+
+bool service_manager::update_service() {
+    bool is_root = (geteuid() == 0);
+    std::string installed_version = get_installed_version();
+    std::string current_version = AGENT_VERSION;
+
+    std::cout << utils::Console::cyan("Update details:") << "\n";
+    std::cout << "  Installed: " << (installed_version.empty() ? "unknown" : installed_version) << "\n";
+    std::cout << "  New:       " << current_version << "\n\n";
+
+    if (!utils::Console::confirm("Proceed with update?", true)) {
+        std::cout << utils::Console::cyan("Update cancelled.") << "\n";
+        return true;
+    }
+
+    // Step 1: Stop service
+    std::cout << utils::Console::loading("Stopping service...") << "\n";
+    if (!service_installer_.stop_service()) {
+        std::cout << utils::Console::error("Failed to stop service") << "\n";
+        return true;
+    }
+    std::cout << utils::Console::success("Service stopped") << "\n";
+
+    // Step 2: Copy current binary to install path
+    std::string target_path = service_installer_.get_binary_install_path(is_root);
+    std::string current_binary;
+
+    // Get current binary path from /proc/self/exe or argv[0]
+    try {
+        current_binary = std::filesystem::read_symlink("/proc/self/exe").string();
+    } catch (...) {
+        // macOS fallback: use _NSGetExecutablePath or find from PATH
+        // For now, use the program invocation
+    }
+
+#ifdef __APPLE__
+    if (current_binary.empty()) {
+        // macOS: use _NSGetExecutablePath
+        char path[4096];
+        uint32_t size = sizeof(path);
+        if (_NSGetExecutablePath(path, &size) == 0) {
+            current_binary = std::filesystem::canonical(path).string();
+        }
+    }
+#endif
+
+    if (current_binary.empty()) {
+        std::cout << utils::Console::error("Could not determine current binary path") << "\n";
+        // Try to restart the service with old binary
+        service_installer_.start_service();
+        return true;
+    }
+
+    // Don't copy if source and target are the same file
+    if (std::filesystem::equivalent(current_binary, target_path)) {
+        std::cout << utils::Console::info("Binary is already at the install path, no copy needed") << "\n";
+    } else {
+        std::cout << utils::Console::loading("Installing new binary...") << "\n";
+        try {
+            std::filesystem::copy_file(current_binary, target_path,
+                                       std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::permissions(target_path,
+                                         std::filesystem::perms::owner_all |
+                                         std::filesystem::perms::group_read |
+                                         std::filesystem::perms::group_exec |
+                                         std::filesystem::perms::others_read |
+                                         std::filesystem::perms::others_exec);
+            std::cout << utils::Console::success("Binary updated: " + target_path) << "\n";
+        } catch (const std::exception& e) {
+            std::cout << utils::Console::error("Failed to copy binary: ") << e.what() << "\n";
+            // Try to restart the service with old binary
+            std::cout << utils::Console::loading("Restarting service with previous binary...") << "\n";
+            service_installer_.start_service();
+            return true;
+        }
+    }
+
+    // Step 3: Start service
+    std::cout << utils::Console::loading("Starting service...") << "\n";
+    if (service_installer_.start_service()) {
+        std::cout << "\n" << utils::Console::success("Service updated successfully!", false) << "\n";
+    } else {
+        std::cout << utils::Console::error("Failed to start service after update") << "\n";
+        std::cout << utils::Console::warning("Check logs for details") << "\n";
+    }
+
+    return true;
+}
 
 } // namespace thinr::cli
