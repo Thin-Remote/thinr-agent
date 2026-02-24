@@ -23,7 +23,6 @@ public:
     int handle_status();
     int handle_test();
     int handle_reconfigure();
-    int handle_test_menu();
     int handle_no_command(const std::string& config_path);
 
 private:
@@ -37,6 +36,7 @@ private:
     bool install_interactive(const InstallOptions& options);
     bool save_and_install_service(const config::DeviceCredentials& credentials, bool no_start);
     std::string determine_device_id(const std::string& provided_device_id);
+    std::string determine_device_name(const std::string& fallback);
 
     // System-wide detection
     bool check_system_installation() const;

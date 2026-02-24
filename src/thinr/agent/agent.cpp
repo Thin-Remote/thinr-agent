@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <thinger/thinger.h>
 #include <thinger/iotmp/client.hpp>
+#include <thinger/util/logger.hpp>
 
 namespace thinr::agent {
 
@@ -34,6 +35,10 @@ agent::~agent() {
 }
 
 void agent::start() {
+    // Enable IOTMP/HTTP library logging and sync with current spdlog level
+    thinger::logging::enable();
+    thinger::logging::set_log_level(spdlog::get_level());
+
     spdlog::info("Starting ThinRemote agent");
     spdlog::info("Device: {} ({})", credentials_.device_id, credentials_.host);
     client_.start();  // Launches run_loop() on worker thread (auto-starts workers)

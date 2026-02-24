@@ -25,7 +25,6 @@ struct ParseResult {
         CMD_STATUS,     // Show status (renamed to avoid macro collision)
         TEST,           // Test connection
         RECONFIGURE,    // Reconfigure
-        TEST_MENU,      // Test interactive menu (dev command)
         HELP,           // Show help
         VERSION,        // Show version
         UNKNOWN         // Unknown command

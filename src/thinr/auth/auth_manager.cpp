@@ -26,48 +26,81 @@ void auth_manager::set_ssl_verification_callback(SSLVerificationCallback callbac
     ssl_verification_callback_ = callback;
 }
 
-std::string auth_manager::oauth_password_flow(const std::string& host, 
-                                            const std::string& username, 
+AuthError auth_manager::map_status_to_error(int status_code) {
+    switch (status_code) {
+        case 401: return AuthError::invalid_credentials;
+        case 403: return AuthError::access_denied;
+        case 404: return AuthError::not_found;
+        default:
+            if (status_code >= 500) return AuthError::server_error;
+            return AuthError::network_error;
+    }
+}
+
+AuthError auth_manager::classify_exception(const std::exception& e) {
+    std::string msg = e.what();
+    if (msg.find("SSL") != std::string::npos ||
+        msg.find("TLS") != std::string::npos ||
+        msg.find("certificate") != std::string::npos ||
+        msg.find("handshake") != std::string::npos ||
+        msg.find("verification failed") != std::string::npos) {
+        return AuthError::ssl_error;
+    }
+    if (msg.find("timeout") != std::string::npos ||
+        msg.find("Timeout") != std::string::npos) {
+        return AuthError::timeout;
+    }
+    return AuthError::network_error;
+}
+
+auth_manager::AuthResult auth_manager::oauth_password_flow(const std::string& host,
+                                            const std::string& username,
                                             const std::string& password) {
     std::string base_url = ensure_https(host);
     std::string oauth_url = base_url + "/oauth/token";
-    
+
     spdlog::debug("Attempting OAuth password flow to: {}", oauth_url);
-    
-    HttpResponse response = make_http_request_form_with_fallback(oauth_url, "POST", {
-        {"grant_type", "password"},
-        {"username", username},
-        {"password", password}
-    });
-    
+
+    HttpResponse response;
+    try {
+        response = make_http_request_form_with_fallback(oauth_url, "POST", {
+            {"grant_type", "password"},
+            {"username", username},
+            {"password", password}
+        });
+    } catch (const std::exception& e) {
+        spdlog::debug("OAuth password flow exception: {}", e.what());
+        return {false, classify_exception(e), 0, {}, e.what()};
+    }
+
     if (!response.success || response.status_code != 200) {
-        throw std::runtime_error("OAuth authentication failed: " + 
-                                std::to_string(response.status_code) + " " + response.body);
+        return {false, map_status_to_error(response.status_code), response.status_code, {}, response.body};
     }
-    
-    auto json_response = parse_response(response, "OAuth authentication");
-    
-    if (!json_response.contains("access_token")) {
-        throw std::runtime_error("OAuth response missing access_token");
+
+    try {
+        auto json_response = parse_response(response, "OAuth authentication");
+        if (!json_response.contains("access_token")) {
+            return {false, AuthError::invalid_response, response.status_code, {}, "OAuth response missing access_token"};
+        }
+        std::string access_token = json_response["access_token"];
+        spdlog::debug("OAuth authentication successful");
+        return {true, AuthError::none, response.status_code, access_token, {}};
+    } catch (const std::exception& e) {
+        return {false, AuthError::invalid_response, response.status_code, {}, e.what()};
     }
-    
-    std::string access_token = json_response["access_token"];
-    spdlog::debug("OAuth authentication successful");
-    
-    return access_token;
 }
 
-config::DeviceCredentials auth_manager::provision_device(const std::string& host,
-                                                       const std::string& username,
-                                                       const std::string& device_id,
-                                                       const std::string& device_name,
-                                                       const std::string& access_token) {
+auth_manager::ProvisionResult auth_manager::provision_device(const std::string& host,
+                                                            const std::string& username,
+                                                            const std::string& device_id,
+                                                            const std::string& device_name,
+                                                            const std::string& access_token) {
     std::string base_url = ensure_https(host);
     std::string provision_url = base_url + "/v1/users/" + username + "/devices";
-    
+
     // Generate device credentials
     std::string device_credentials = generate_device_credentials();
-    
+
     nlohmann::json payload = {
         {"enabled", true},
         {"type", "Generic"},
@@ -76,110 +109,87 @@ config::DeviceCredentials auth_manager::provision_device(const std::string& host
         {"name", device_name.empty() ? device_id : device_name},
         {"description", utils::SystemInfo::get_os_description()}
     };
-    
+
     spdlog::debug("Provisioning device: {} for user: {}", device_id, username);
-    
-    HttpResponse response = make_http_request_with_fallback(provision_url, "POST", payload, 
+
+    HttpResponse response = make_http_request_with_fallback(provision_url, "POST", payload,
                                                            "Bearer " + access_token);
-    
+
     if (!response.success || (response.status_code != 200 && response.status_code != 201)) {
-        throw std::runtime_error("Device provisioning failed: " + 
-                                std::to_string(response.status_code) + " " + response.body);
+        spdlog::debug("Device provisioning failed: {} {}", response.status_code, response.body);
+        return {false, response.status_code, {}};
     }
-    
+
     auto json_response = parse_response(response, "Device provisioning");
-    
+
     config::DeviceCredentials credentials;
     credentials.host = host;
     credentials.device_name = device_name;
-    
+
     // Extract device ID from response or use the one we sent
     if (json_response.contains("device")) {
         credentials.device_id = json_response["device"];
     } else {
         credentials.device_id = device_id;
     }
-    
+
     credentials.device_user = username;  // The user from OAuth
     credentials.device_token = device_credentials;  // The credentials we generated
     credentials.version = "1.0.0";
-    
+
     if (!credentials.is_valid()) {
-        throw std::runtime_error("Invalid device credentials received from server");
+        spdlog::error("Invalid device credentials received from server");
+        return {false, response.status_code, {}};
     }
-    
+
     spdlog::debug("Device provisioned successfully: {}", credentials.device_id);
-    
-    return credentials;
+
+    return {true, response.status_code, credentials};
 }
 
-config::DeviceCredentials auth_manager::auto_provision(const std::string& token) {
+auth_manager::ProvisionResult auth_manager::auto_provision(const std::string& token) {
     spdlog::debug("Attempting auto-provision with JWT token");
-    
-    try {
-        // Decode JWT to extract host and user info
-        nlohmann::json payload = decode_jwt_payload(token);
-        
-        if (!payload.contains("svr") || !payload.contains("usr")) {
-            throw std::runtime_error("Invalid JWT payload: missing server or user info");
-        }
-        
-        std::string host = payload["svr"];
-        std::string username = payload["usr"];
-        
-        // Generate device ID from hostname
-        std::string device_id;
-        {
-            // Get the local hostname
-            boost::system::error_code ec;
-            device_id = boost::asio::ip::host_name(ec);
-            if (device_id.empty()) {
-                device_id = "thinremote-device";
-            }
-        }
-        
-        spdlog::debug("Auto-provisioning device: {} for user: {} on host: {}", device_id, username, host);
-        
-        // Use the JWT token directly to provision the device
-        // Use hostname as device name
-        std::string device_name = device_id;
-        auto credentials = provision_device(host, username, device_id, device_name, token);
-        
-        spdlog::debug("Auto-provision successful: {}", credentials.device_id);
-        
-        return credentials;
-        
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Auto-provision failed: " + std::string(e.what()));
+
+    nlohmann::json payload = decode_jwt_payload(token);
+
+    if (!payload.contains("svr") || !payload.contains("usr")) {
+        return {false, 0, {}};
     }
+
+    std::string host = payload["svr"];
+    std::string username = payload["usr"];
+
+    // Generate device ID from hostname
+    std::string device_id;
+    {
+        boost::system::error_code ec;
+        device_id = boost::asio::ip::host_name(ec);
+        if (device_id.empty()) {
+            device_id = "thinremote-device";
+        }
+    }
+
+    spdlog::debug("Auto-provisioning device: {} for user: {} on host: {}", device_id, username, host);
+
+    std::string device_name = device_id;
+    return provision_device(host, username, device_id, device_name, token);
 }
 
-config::DeviceCredentials auth_manager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name) {
+auth_manager::ProvisionResult auth_manager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name) {
     spdlog::debug("Attempting auto-provision with JWT token and custom device ID");
-    
-    try {
-        // Decode JWT to extract host and user info
-        nlohmann::json payload = decode_jwt_payload(token);
-        
-        if (!payload.contains("svr") || !payload.contains("usr")) {
-            throw std::runtime_error("Invalid JWT payload: missing server or user info");
-        }
-        
-        std::string host = payload["svr"];
-        std::string username = payload["usr"];
-        
-        spdlog::debug("Auto-provisioning device: {} for user: {} on host: {}", device_id, username, host);
-        
-        // Use the JWT token directly to provision the device
-        auto credentials = provision_device(host, username, device_id, device_name, token);
-        
-        spdlog::debug("Auto-provision successful: {}", credentials.device_id);
-        
-        return credentials;
-        
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Auto-provision failed: " + std::string(e.what()));
+
+    nlohmann::json payload = decode_jwt_payload(token);
+
+    if (!payload.contains("svr") || !payload.contains("usr")) {
+        return {false, 0, {}};
     }
+
+    std::string host = payload["svr"];
+    std::string username = payload["usr"];
+
+    spdlog::debug("Auto-provisioning device: {} for user: {} on host: {}", device_id, username, host);
+
+    return provision_device(host, username, device_id, device_name, token);
 }
 
 bool auth_manager::test_connection(const config::DeviceCredentials& credentials) {
@@ -453,42 +463,18 @@ auth_manager::HttpResponse auth_manager::make_http_request_with_fallback(const s
                                                                       const nlohmann::json& payload,
                                                                       const std::string& authorization) {
     try {
-        // Always try with SSL verification enabled first
         return make_http_request(url, method, payload, authorization, true);
     } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        spdlog::info("HTTP form request failed with error: '{}'", error_msg);
-        spdlog::info("Checking if error is SSL-related...");
-        
-        // Check if it's an SSL-related error
-        if (error_msg.find("SSL") != std::string::npos || 
-            error_msg.find("certificate") != std::string::npos ||
-            error_msg.find("TLS") != std::string::npos ||
-            error_msg.find("handshake") != std::string::npos ||
-            error_msg.find("verification failed") != std::string::npos ||
-            error_msg.find("server verification") != std::string::npos ||
-            error_msg.find("SSL server verification failed") != std::string::npos) {
-            
-            spdlog::info("Error is SSL-related. Checking for callback...");
-            // If we have a callback, ask the user
-            if (ssl_verification_callback_) {
-                spdlog::info("SSL verification callback found. Calling it...");
-                bool allow_insecure = ssl_verification_callback_(error_msg);
-                if (allow_insecure) {
-                    spdlog::warn("User accepted insecure connection - SSL verification disabled");
-                    return make_http_request(url, method, payload, authorization, false);
-                } else {
-                    throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + error_msg);
-                }
+        if (classify_exception(e) != AuthError::ssl_error) throw;
+
+        spdlog::info("SSL error: '{}'. Checking for callback...", e.what());
+        if (ssl_verification_callback_) {
+            if (ssl_verification_callback_(e.what())) {
+                spdlog::warn("User accepted insecure connection - SSL verification disabled");
+                return make_http_request(url, method, payload, authorization, false);
             }
-            
-            // No callback - just fail with the original error
-            throw;
+            throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + std::string(e.what()));
         }
-        
-        spdlog::debug("Error is not SSL-related, re-throwing original exception");
-        // If it's not an SSL error, re-throw the original exception
         throw;
     }
 }
@@ -498,143 +484,131 @@ auth_manager::HttpResponse auth_manager::make_http_request_form_with_fallback(co
                                                                            const std::map<std::string, std::string>& form_data,
                                                                            const std::string& authorization) {
     try {
-        // Always try with SSL verification enabled first
         return make_http_request_form(url, method, form_data, authorization, true);
     } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        spdlog::debug("HTTP request failed with error: '{}'", error_msg);
-        
-        // Check if it's an SSL-related error
-        if (error_msg.find("SSL") != std::string::npos || 
-            error_msg.find("certificate") != std::string::npos ||
-            error_msg.find("TLS") != std::string::npos ||
-            error_msg.find("handshake") != std::string::npos ||
-            error_msg.find("verification failed") != std::string::npos ||
-            error_msg.find("server verification") != std::string::npos ||
-            error_msg.find("SSL server verification failed") != std::string::npos) {
-            
-            spdlog::info("Error is SSL-related. Checking for callback...");
-            // If we have a callback, ask the user
-            if (ssl_verification_callback_) {
-                spdlog::info("SSL verification callback found. Calling it...");
-                bool allow_insecure = ssl_verification_callback_(error_msg);
-                if (allow_insecure) {
-                    spdlog::warn("User accepted insecure connection - SSL verification disabled");
-                    return make_http_request_form(url, method, form_data, authorization, false);
-                } else {
-                    throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + error_msg);
-                }
+        if (classify_exception(e) != AuthError::ssl_error) throw;
+
+        spdlog::info("SSL error: '{}'. Checking for callback...", e.what());
+        if (ssl_verification_callback_) {
+            if (ssl_verification_callback_(e.what())) {
+                spdlog::warn("User accepted insecure connection - SSL verification disabled");
+                return make_http_request_form(url, method, form_data, authorization, false);
             }
-            
-            // No callback - just fail with the original error
-            throw;
+            throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + std::string(e.what()));
         }
-        
-        spdlog::debug("Error is not SSL-related, re-throwing original exception");
-        // If it's not an SSL error, re-throw the original exception
         throw;
     }
 }
 
-auth_manager::DeviceAuthResponse auth_manager::start_device_flow(const std::string& host, const std::string& client_id) {
+auth_manager::DeviceFlowResult auth_manager::start_device_flow(const std::string& host, const std::string& client_id) {
     std::string base_url = ensure_https(host);
     std::string device_auth_url = base_url + "/oauth/device/authorize";
-    
+
     spdlog::debug("Starting device flow to: {}", device_auth_url);
-    
-    HttpResponse response = make_http_request_form_with_fallback(device_auth_url, "POST", {
-        {"client_id", client_id}
-    });
-    
+
+    HttpResponse response;
+    try {
+        response = make_http_request_form_with_fallback(device_auth_url, "POST", {
+            {"client_id", client_id}
+        });
+    } catch (const std::exception& e) {
+        spdlog::debug("Device flow start exception: {}", e.what());
+        return {false, classify_exception(e), 0, {}, e.what()};
+    }
+
     if (!response.success || response.status_code != 200) {
-        throw std::runtime_error("Device authorization failed: " + 
-                                std::to_string(response.status_code) + " " + response.body);
+        return {false, map_status_to_error(response.status_code), response.status_code, {}, response.body};
     }
-    
-    auto json_response = parse_response(response, "Device authorization");
-    
-    DeviceAuthResponse device_response;
-    device_response.device_code = json_response.value("device_code", "");
-    device_response.user_code = json_response.value("user_code", "");
-    device_response.verification_uri = json_response.value("verification_uri", "");
-    device_response.expires_in = json_response.value("expires_in", 600);
-    device_response.interval = json_response.value("interval", 5);
-    
-    if (device_response.device_code.empty() || device_response.user_code.empty()) {
-        throw std::runtime_error("Invalid device authorization response");
+
+    try {
+        auto json_response = parse_response(response, "Device authorization");
+
+        DeviceAuthResponse device_response;
+        device_response.device_code = json_response.value("device_code", "");
+        device_response.user_code = json_response.value("user_code", "");
+        device_response.verification_uri = json_response.value("verification_uri", "");
+        device_response.expires_in = json_response.value("expires_in", 600);
+        device_response.interval = json_response.value("interval", 5);
+
+        if (device_response.device_code.empty() || device_response.user_code.empty()) {
+            return {false, AuthError::invalid_response, response.status_code, {}, "Missing device_code or user_code"};
+        }
+
+        spdlog::debug("Device flow started successfully, user_code: {}", device_response.user_code);
+        return {true, AuthError::none, response.status_code, device_response, {}};
+    } catch (const std::exception& e) {
+        return {false, AuthError::invalid_response, response.status_code, {}, e.what()};
     }
-    
-    spdlog::debug("Device flow started successfully, user_code: {}", device_response.user_code);
-    
-    return device_response;
 }
 
-std::string auth_manager::poll_device_token(const std::string& host, 
+auth_manager::AuthResult auth_manager::poll_device_token(const std::string& host,
                                           const std::string& client_id,
                                           const std::string& device_code,
                                           int timeout_seconds,
                                           int interval_seconds) {
     std::string base_url = ensure_https(host);
     std::string token_url = base_url + "/oauth/token";
-    
+
     auto start_time = std::chrono::steady_clock::now();
     auto timeout = std::chrono::seconds(timeout_seconds);
-    
+
     spdlog::debug("Starting token polling with timeout: {}s, interval: {}s", timeout_seconds, interval_seconds);
-    
+
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
         if (current_time - start_time > timeout) {
-            throw std::runtime_error("Device flow timeout - user did not authorize within " + 
-                                    std::to_string(timeout_seconds) + " seconds");
+            return {false, AuthError::timeout, 0, {}, "User did not authorize within " + std::to_string(timeout_seconds) + " seconds"};
         }
-        
-        HttpResponse response = make_http_request_form_with_fallback(token_url, "POST", {
-            {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
-            {"client_id", client_id},
-            {"device_code", device_code}
-        });
-        
+
+        HttpResponse response;
+        try {
+            response = make_http_request_form_with_fallback(token_url, "POST", {
+                {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
+                {"client_id", client_id},
+                {"device_code", device_code}
+            });
+        } catch (const std::exception& e) {
+            spdlog::debug("Token polling exception: {}", e.what());
+            return {false, classify_exception(e), 0, {}, e.what()};
+        }
+
         if (response.success && response.status_code == 200) {
-            // Success - we got the token
-            auto json_response = parse_response(response, "Token polling");
-            if (json_response.contains("access_token")) {
-                std::string access_token = json_response["access_token"];
-                spdlog::debug("Device flow completed successfully");
-                return access_token;
+            try {
+                auto json_response = parse_response(response, "Token polling");
+                if (json_response.contains("access_token")) {
+                    std::string access_token = json_response["access_token"];
+                    spdlog::debug("Device flow completed successfully");
+                    return {true, AuthError::none, response.status_code, access_token, {}};
+                }
+                return {false, AuthError::invalid_response, response.status_code, {}, "Token response missing access_token"};
+            } catch (const std::exception& e) {
+                return {false, AuthError::invalid_response, response.status_code, {}, e.what()};
             }
         } else if (response.status_code == 400) {
-            // Check for specific OAuth errors
             try {
                 auto json_response = nlohmann::json::parse(response.body);
                 std::string error = json_response.value("error", "");
-                
+
                 if (error == "authorization_pending") {
-                    // User hasn't authorized yet, continue polling
                     spdlog::debug("Authorization pending, continuing to poll...");
                 } else if (error == "slow_down") {
-                    // Slow down polling
                     spdlog::debug("Received slow_down, increasing polling interval");
                     std::this_thread::sleep_for(std::chrono::seconds(5));
                     continue;
                 } else if (error == "access_denied") {
-                    throw std::runtime_error("User denied the authorization request");
+                    return {false, AuthError::user_denied, response.status_code, {}, "User denied the authorization request"};
                 } else if (error == "expired_token") {
-                    throw std::runtime_error("Device code expired");
+                    return {false, AuthError::token_expired, response.status_code, {}, "Device code expired"};
                 } else {
-                    throw std::runtime_error("OAuth error: " + error);
+                    return {false, AuthError::server_error, response.status_code, {}, "OAuth error: " + error};
                 }
             } catch (const nlohmann::json::exception&) {
-                throw std::runtime_error("Token polling failed: " + 
-                                        std::to_string(response.status_code) + " " + response.body);
+                return {false, AuthError::invalid_response, response.status_code, {}, response.body};
             }
         } else {
-            throw std::runtime_error("Token polling failed: " + 
-                                    std::to_string(response.status_code) + " " + response.body);
+            return {false, map_status_to_error(response.status_code), response.status_code, {}, response.body};
         }
-        
-        // Wait before next poll using the interval from device flow response
+
         std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
     }
 }

@@ -14,6 +14,21 @@ namespace thinr::auth {
 // SSL verification callback function type
 using SSLVerificationCallback = std::function<bool(const std::string& error_msg)>;
 
+// Error classification for auth operations
+enum class AuthError {
+    none,
+    invalid_credentials,
+    access_denied,
+    not_found,
+    network_error,
+    token_expired,
+    user_denied,
+    timeout,
+    invalid_response,
+    server_error,
+    ssl_error
+};
+
 class auth_manager {
 public:
     auth_manager();
@@ -21,21 +36,37 @@ public:
     // Set callback for SSL verification decisions
     void set_ssl_verification_callback(SSLVerificationCallback callback);
 
-    // OAuth password flow - returns access token
-    std::string oauth_password_flow(const std::string& host,
+    // Result of an OAuth/token operation
+    struct AuthResult {
+        bool success = false;
+        AuthError error = AuthError::none;
+        int status_code = 0;
+        std::string access_token;
+        std::string error_detail;
+    };
+
+    // OAuth password flow - returns AuthResult
+    AuthResult oauth_password_flow(const std::string& host,
                                    const std::string& username,
                                    const std::string& password);
 
-    // Provision device with access token - returns device credentials
-    config::DeviceCredentials provision_device(const std::string& host,
-                                              const std::string& username,
-                                              const std::string& device_id,
-                                              const std::string& device_name,
-                                              const std::string& access_token);
+    // Result of a provisioning attempt
+    struct ProvisionResult {
+        bool success = false;
+        int status_code = 0;
+        config::DeviceCredentials credentials;
+    };
 
-    // Auto-provision with token - returns device credentials
-    config::DeviceCredentials auto_provision(const std::string& token);
-    config::DeviceCredentials auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name = "");
+    // Provision device with access token
+    ProvisionResult provision_device(const std::string& host,
+                                    const std::string& username,
+                                    const std::string& device_id,
+                                    const std::string& device_name,
+                                    const std::string& access_token);
+
+    // Auto-provision with token
+    ProvisionResult auto_provision(const std::string& token);
+    ProvisionResult auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name = "");
 
     // Test connection with device credentials
     bool test_connection(const config::DeviceCredentials& credentials);
@@ -58,8 +89,17 @@ public:
         int interval;
     };
 
-    DeviceAuthResponse start_device_flow(const std::string& host, const std::string& client_id);
-    std::string poll_device_token(const std::string& host,
+    // Result of a device flow initiation
+    struct DeviceFlowResult {
+        bool success = false;
+        AuthError error = AuthError::none;
+        int status_code = 0;
+        DeviceAuthResponse response;
+        std::string error_detail;
+    };
+
+    DeviceFlowResult start_device_flow(const std::string& host, const std::string& client_id);
+    AuthResult poll_device_token(const std::string& host,
                                  const std::string& client_id,
                                  const std::string& device_code,
                                  int timeout_seconds = 300,
@@ -99,6 +139,9 @@ private:
                                                     const std::string& method,
                                                     const std::map<std::string, std::string>& form_data,
                                                     const std::string& authorization = "");
+
+    static AuthError map_status_to_error(int status_code);
+    static AuthError classify_exception(const std::exception& e);
 
     static constexpr int HTTP_TIMEOUT_SECONDS = 30;
 

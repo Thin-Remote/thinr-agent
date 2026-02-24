@@ -27,8 +27,7 @@ int command_handler::execute(const ParseResult& parse_result) {
         // For interactive commands, use quiet (0). For agent mode, use error level (1)
         bool is_interactive_mode = (parse_result.command == ParseResult::Command::INSTALL ||
                                    parse_result.command == ParseResult::Command::RECONFIGURE ||
-                                   parse_result.command == ParseResult::Command::UNINSTALL ||
-                                   parse_result.command == ParseResult::Command::TEST_MENU);
+                                   parse_result.command == ParseResult::Command::UNINSTALL);
         
         // For NONE command, check if we'll likely do interactive setup vs agent mode
         if (parse_result.command == ParseResult::Command::NONE) {
@@ -100,9 +99,6 @@ int command_handler::execute(const ParseResult& parse_result) {
         case ParseResult::Command::RECONFIGURE:
             return handle_reconfigure();
             
-        case ParseResult::Command::TEST_MENU:
-            return handle_test_menu();
-            
         case ParseResult::Command::NONE:
             return handle_no_command(parse_result.config_path);
             
@@ -148,54 +144,28 @@ bool command_handler::install_with_token(const InstallOptions& options) {
     
     try {
         std::cout << utils::Console::loading("Auto-provisioning device with token...") << "\n";
-        
-        // Get hostname as device name
-        char hostname[256];
-        std::string device_name = (gethostname(hostname, sizeof(hostname)) == 0) ? hostname : final_device_id;
-        
-        // Remove .local suffix if present
-        const std::string local_suffix = ".local";
-        if (device_name.length() > local_suffix.length() && 
-            device_name.substr(device_name.length() - local_suffix.length()) == local_suffix) {
-            device_name = device_name.substr(0, device_name.length() - local_suffix.length());
+
+        std::string device_name = determine_device_name(final_device_id);
+
+        auto result = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name);
+
+        if (result.success) {
+            result.credentials.host = options.host;
+            std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
+            return save_and_install_service(result.credentials, options.no_start);
         }
-        
-        // Convert to lowercase for consistency
-        std::transform(device_name.begin(), device_name.end(), device_name.begin(), ::tolower);
-        
-        auto credentials = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name);
-        credentials.host = options.host;
-        
-        std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
-        
-        // Save configuration and install service
-        return save_and_install_service(credentials, options.no_start);
-        
-    } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        // Handle device conflict
-        if (error_msg.find("already exists") != std::string::npos) {
-            if (options.overwrite || !is_interactive_terminal()) {
-                std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
-                try {
-                    // Delete existing device and try again
-                    // This requires getting access token first
-                    std::cout << utils::Console::error("Device overwrite not yet fully implemented") << "\n";
-                    return false;
-                } catch (const std::exception& e2) {
-                    std::cout << utils::Console::error("Failed to overwrite device: ") << e2.what() << "\n";
-                    return false;
-                }
-            } else {
-                std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
-                std::cout << "Use --overwrite flag to replace the existing device.\n";
-                return false;
-            }
+
+        if (result.status_code == 409) {
+            std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
+            std::cout << "Use --overwrite flag to replace the existing device.\n";
         } else {
-            std::cout << utils::Console::error("Auto-provisioning failed: ") << error_msg << "\n";
-            return false;
+            std::cout << utils::Console::error("Auto-provisioning failed (HTTP " + std::to_string(result.status_code) + ")") << "\n";
         }
+        return false;
+
+    } catch (const std::exception& e) {
+        std::cout << utils::Console::error("Auto-provisioning failed: ") << e.what() << "\n";
+        return false;
     }
 }
 
@@ -220,59 +190,62 @@ bool command_handler::install_interactive(const InstallOptions& options) {
     
     std::string password = read_password_securely();
     std::string final_device_id = determine_device_id(options.device_id);
-    
-    // Get hostname as device name
-    char hostname[256];
-    std::string device_name = (gethostname(hostname, sizeof(hostname)) == 0) ? hostname : final_device_id;
-    
-    // Remove .local suffix if present
-    const std::string local_suffix = ".local";
-    if (device_name.length() > local_suffix.length() && 
-        device_name.substr(device_name.length() - local_suffix.length()) == local_suffix) {
-        device_name = device_name.substr(0, device_name.length() - local_suffix.length());
-    }
-    
-    // Convert to lowercase for consistency
-    std::transform(device_name.begin(), device_name.end(), device_name.begin(), ::tolower);
-    
+    std::string device_name = determine_device_name(final_device_id);
+
     std::cout << utils::Console::loading("Authenticating and provisioning device...") << "\n";
-    
-    try {
-        // Get access token first
-        std::string access_token = auth_manager_.oauth_password_flow(options.host, username, password);
-        
-        // Provision device with access token
-        auto credentials = auth_manager_.provision_device(options.host, username, final_device_id, device_name, access_token);
-        
-        std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
-        
-        // Save configuration and install service
-        return save_and_install_service(credentials, options.no_start);
-        
-    } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        if (error_msg.find("already exists") != std::string::npos && options.overwrite) {
-            std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
-            try {
-                // Delete existing device and try again
-                std::string access_token = auth_manager_.oauth_password_flow(options.host, username, password);
-                auth_manager_.delete_device(options.host, username, final_device_id, access_token);
-                
-                auto credentials = auth_manager_.provision_device(options.host, username, final_device_id, device_name, access_token);
-                std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
-                
-                return save_and_install_service(credentials, options.no_start);
-                
-            } catch (const std::exception& e2) {
-                std::cout << utils::Console::error("Failed to overwrite device: ") << e2.what() << "\n";
-                return false;
-            }
-        } else {
-            std::cout << utils::Console::error("Authentication failed: ") << error_msg << "\n";
-            return false;
+
+    // Get access token first
+    auto auth_result = auth_manager_.oauth_password_flow(options.host, username, password);
+
+    if (!auth_result.success) {
+        using auth::AuthError;
+        switch (auth_result.error) {
+            case AuthError::invalid_credentials:
+                std::cout << utils::Console::error("Invalid username or password") << "\n";
+                break;
+            case AuthError::access_denied:
+                std::cout << utils::Console::error("Access denied - check your permissions") << "\n";
+                break;
+            case AuthError::not_found:
+                std::cout << utils::Console::error("Host not found - check the host URL") << "\n";
+                break;
+            case AuthError::ssl_error:
+                std::cout << utils::Console::error("SSL connection failed") << "\n";
+                break;
+            default:
+                std::cout << utils::Console::error("Authentication failed: ") << auth_result.error_detail << "\n";
+                break;
         }
+        return false;
     }
+
+    // Provision device with access token
+    auto result = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token);
+
+    if (result.success) {
+        std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
+        return save_and_install_service(result.credentials, options.no_start);
+    }
+
+    if (result.status_code == 409 && options.overwrite) {
+        std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
+        auth_manager_.delete_device(options.host, username, final_device_id, auth_result.access_token);
+        auto retry = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token);
+        if (retry.success) {
+            std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
+            return save_and_install_service(retry.credentials, options.no_start);
+        }
+        std::cout << utils::Console::error("Failed to overwrite device") << "\n";
+        return false;
+    }
+
+    if (result.status_code == 409) {
+        std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
+        std::cout << "Use --overwrite flag to replace the existing device.\n";
+    } else {
+        std::cout << utils::Console::error("Provisioning failed (HTTP " + std::to_string(result.status_code) + ")") << "\n";
+    }
+    return false;
 }
 
 bool command_handler::save_and_install_service(const config::DeviceCredentials& credentials, bool no_start) {
@@ -314,13 +287,28 @@ std::string command_handler::determine_device_id(const std::string& provided_dev
     if (!provided_device_id.empty()) {
         return provided_device_id;
     }
-    
+
     // Generate device ID using hostname prefix + MAC address
     std::string generated_id = utils::DeviceIdGenerator::generate();
     std::cout << utils::Console::cyan("Generated device ID: ") << generated_id << "\n";
     spdlog::debug("Device ID generated from hostname prefix and MAC address");
-    
+
     return generated_id;
+}
+
+std::string command_handler::determine_device_name(const std::string& fallback) {
+    char hostname[256];
+    std::string name = (gethostname(hostname, sizeof(hostname)) == 0) ? hostname : fallback;
+
+    // Remove .local suffix if present
+    const std::string local_suffix = ".local";
+    if (name.length() > local_suffix.length() &&
+        name.substr(name.length() - local_suffix.length()) == local_suffix) {
+        name = name.substr(0, name.length() - local_suffix.length());
+    }
+
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+    return name;
 }
 
 int command_handler::handle_uninstall() {
@@ -359,12 +347,6 @@ int command_handler::handle_reconfigure() {
     
     installer::interactive_setup setup;
     return setup.run() ? 0 : 1;
-}
-
-int command_handler::handle_test_menu() {
-    installer::interactive_setup setup;
-    setup.test_interactive_menu();
-    return 0;
 }
 
 int command_handler::handle_no_command(const std::string& config_path) {

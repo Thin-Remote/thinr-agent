@@ -14,12 +14,17 @@ std::string sysv_service_installer::get_service_file_path(bool system_wide) {
     if (!system_wide) {
         spdlog::warn("{} only supports system-wide installation", get_init_system_name());
     }
-    
-    // Check which init.d path exists
-    if (std::filesystem::exists("/etc/rc.d/init.d/")) {
-        return "/etc/rc.d/init.d/" + config_.get_service_identifier();
-    } else if (std::filesystem::exists("/etc/init.d/")) {
+
+    // OpenWrt/procd: scripts must go in /etc/init.d/ (rc.d is for symlinks only)
+    if (std::filesystem::exists("/sbin/procd") && std::filesystem::exists("/etc/rc.common")) {
         return "/etc/init.d/" + config_.get_service_identifier();
+    }
+
+    // Check which init.d path exists
+    if (std::filesystem::exists("/etc/init.d/")) {
+        return "/etc/init.d/" + config_.get_service_identifier();
+    } else if (std::filesystem::exists("/etc/rc.d/init.d/")) {
+        return "/etc/rc.d/init.d/" + config_.get_service_identifier();
     } else {
         // Default to /etc/init.d/
         return "/etc/init.d/" + config_.get_service_identifier();
@@ -190,27 +195,35 @@ bool sysv_service_installer::stop_service_impl() {
 
 sysv_service_installer::ServiceStatus sysv_service_installer::check_service_status_impl(bool system_wide) {
     std::string script_path = get_service_file_path(system_wide);
-    
-    // Check if init script exists
+
     if (!std::filesystem::exists(script_path)) {
         return ServiceStatus::NOT_INSTALLED;
     }
-    
-    // Check service status using the init script
+
     std::string service_name = config_.get_service_identifier();
-    std::string status_cmd = script_path + " status >/dev/null 2>&1";
-    
-    // LSB init script exit codes:
-    // 0 = service is running
-    // 1 = service is dead but PID file exists
-    // 3 = service is not running
-    // 4 = service status is unknown
-    if (execute_system_command(status_cmd)) {
-        return ServiceStatus::INSTALLED_RUNNING;
-    } else {
-        // For any non-zero exit code, consider it stopped
-        return ServiceStatus::INSTALLED_STOPPED;
+
+    // Check PID file first — works reliably on all init systems including procd
+    std::string pid_file = "/var/run/" + service_name + ".pid";
+    if (std::filesystem::exists(pid_file)) {
+        std::ifstream pid_stream(pid_file);
+        std::string pid_str;
+        if (std::getline(pid_stream, pid_str) && !pid_str.empty()) {
+            // Verify process is actually alive
+            std::string check_cmd = "kill -0 " + pid_str + " 2>/dev/null";
+            if (execute_system_command(check_cmd)) {
+                return ServiceStatus::INSTALLED_RUNNING;
+            }
+        }
     }
+
+    // Fallback: check if any instance of the binary is running via pgrep
+    // Use -f (match full command line) — supported by both GNU and BusyBox pgrep
+    std::string pgrep_cmd = "pgrep -f " + service_name + " >/dev/null 2>&1";
+    if (execute_system_command(pgrep_cmd)) {
+        return ServiceStatus::INSTALLED_RUNNING;
+    }
+
+    return ServiceStatus::INSTALLED_STOPPED;
 }
 
 std::string sysv_service_installer::generate_service_file(bool system_wide) {
@@ -262,7 +275,7 @@ std::string sysv_service_installer::generate_service_file(bool system_wide) {
         script << "stop() {\n";
         script << "    # Check if we're being called from our own uninstaller\n";
         script << "    local caller_pid=$PPID\n";
-        script << "    local caller_name=$(cat /proc/$caller_pid/comm 2>/dev/null)\n";
+        script << "    local caller_name=$(cat /proc/$caller_pid/comm 2>/dev/null || ps -o comm= -p $caller_pid 2>/dev/null)\n";
         script << "    \n";
         script << "    if [ \"$caller_name\" = \"thinr-agent\" ]; then\n";
         script << "        # Called from thinr-agent, use PID-based stop\n";

@@ -247,7 +247,7 @@ config::DeviceCredentials interactive_setup::authenticate() {
                 method = select_auth_method();
                 first_time = false;
             }
-            
+
             switch (method) {
                 case AuthMethod::PASSWORD_FLOW:
                     return password_flow_auth();
@@ -260,33 +260,23 @@ config::DeviceCredentials interactive_setup::authenticate() {
                 default:
                     throw std::runtime_error("Invalid authentication method");
             }
-            
-        } catch (const std::exception& e) {
-            std::string error_msg = e.what();
-            
-            // Don't retry for certain errors
-            if (error_msg.find("Invalid authentication method") != std::string::npos ||
-                error_msg.find("Setup cancelled by user") != std::string::npos) {
-                throw;
-            }
-            
+
+        } catch (const setup_cancelled&) {
+            throw;  // User cancellation — propagate immediately
+        } catch (const std::exception&) {
             // Ask user if they want to retry or try a different method
             std::vector<std::string> options = {
                 "Try again with same method",
-                "Choose different authentication method", 
+                "Choose different authentication method",
                 "Exit setup"
             };
-            
+
             int choice = utils::Console::getUserChoice(options, "What would you like to do?");
-            
+
             switch (choice) {
-                case 1: // Retry same method - keep current method
-                    break;
-                case 2: // Choose different method
-                    first_time = true;
-                    break;
-                case 3: // Exit setup
-                    throw std::runtime_error("Setup cancelled by user");
+                case 1: break;
+                case 2: first_time = true; break;
+                case 3: throw setup_cancelled("Setup cancelled by user");
                 default: break;
             }
         }
@@ -295,217 +285,118 @@ config::DeviceCredentials interactive_setup::authenticate() {
 
 config::DeviceCredentials interactive_setup::password_flow_auth() {
     utils::Console::printSectionHeader("Username and password authentication", "🔐");
-    
+
     std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
     std::string username = read_input("Username: ");
     std::string password = read_password("Password: ");
-    
+
     std::cout << utils::Console::loading("Performing OAuth authentication...") << "\n";
-    
-    try {
-        std::string access_token = auth_manager_.oauth_password_flow(host, username, password);
-        std::cout << utils::Console::success("Authentication successful") << "\n";
-        
-        // Device provisioning section
-        utils::Console::printSectionHeader("Device Provisioning", "🖥️");
-        
-        // Get default device ID (hostname)
-        std::string default_device_id = get_default_device_id();
-        
-        std::cout << "Enter device identifier (unique name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device ID [" << default_device_id << "]: ";
-        std::string device_id_input;
-        std::getline(std::cin, device_id_input);
-        std::string device_id = device_id_input.empty() ? default_device_id : device_id_input;
-        
-        // Get device name (human-friendly name)
-        std::string default_device_name = get_default_device_name();
-        std::cout << "\nEnter device name (human-friendly name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device Name [" << default_device_name << "]: ";
-        std::string device_name_input;
-        std::getline(std::cin, device_name_input);
-        std::string device_name = device_name_input.empty() ? default_device_name : device_name_input;
-        
-        auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, access_token);
-        std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
-        
-        return credentials;
-        
-    } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        // Parse common authentication errors and provide user-friendly messages
-        if (error_msg.find("401") != std::string::npos) {
-            std::cout << utils::Console::error("Invalid username or password") << "\n";
-        } else if (error_msg.find("403") != std::string::npos) {
-            std::cout << utils::Console::error("Access denied - check your permissions") << "\n";
-        } else if (error_msg.find("404") != std::string::npos) {
-            std::cout << utils::Console::error("Host not found - check the ThinRemote host URL") << "\n";
-        } else if (error_msg.find("timeout") != std::string::npos || error_msg.find("connection") != std::string::npos) {
-            std::cout << utils::Console::error("Connection failed - check your network connection") << "\n";
-        } else {
-            std::cout << utils::Console::error("Authentication failed: ") << error_msg << "\n";
-        }
-        
-        spdlog::debug("OAuth authentication failed: {}", e.what());
+
+    auto result = auth_manager_.oauth_password_flow(host, username, password);
+
+    if (!result.success) {
+        show_auth_error(result);
         throw std::runtime_error("Authentication failed");
     }
+
+    std::cout << utils::Console::success("Authentication successful") << "\n";
+
+    auto [device_id, device_name] = prompt_device_info();
+
+    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, result.access_token);
+    std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
+
+    return credentials;
 }
 
 config::DeviceCredentials interactive_setup::auto_provision_auth() {
     utils::Console::printSectionHeader("Auto-provisioning token authentication", "🔑");
-    
+
     std::string token = read_input("Provisioning token: ");
-    
+
     std::cout << utils::Console::loading("Validating token...") << "\n";
-    
+
     try {
-        // Validate token first by attempting to decode it
         nlohmann::json payload = auth_manager_.decode_jwt_payload(token);
         std::cout << utils::Console::success("Token validated successfully") << "\n\n";
-        
-        // Device provisioning section
-        utils::Console::printSectionHeader("Device Provisioning", "🖥️");
-        
-        // Get default device ID (hostname)
-        std::string default_device_id = get_default_device_id();
-        
-        std::cout << "Enter device identifier (unique name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device ID [" << default_device_id << "]: ";
-        std::string device_id_input;
-        std::getline(std::cin, device_id_input);
-        std::string device_id = device_id_input.empty() ? default_device_id : device_id_input;
-        
-        // Get device name (human-friendly name)
-        std::string default_device_name = get_default_device_name();
-        std::cout << "\nEnter device name (human-friendly name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device Name [" << default_device_name << "]: ";
-        std::string device_name_input;
-        std::getline(std::cin, device_name_input);
-        std::string device_name = device_name_input.empty() ? default_device_name : device_name_input;
-        
-        auto credentials = auto_provision_with_conflict_resolution(token, device_id, device_name);
-        std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
-        
-        return credentials;
-        
     } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        // Parse common auto-provision errors and provide user-friendly messages
-        if (error_msg.find("Invalid JWT") != std::string::npos || error_msg.find("jwt") != std::string::npos) {
-            std::cout << utils::Console::error("Invalid provisioning token - check your token") << "\n";
-        } else if (error_msg.find("401") != std::string::npos) {
-            std::cout << utils::Console::error("Token expired or invalid") << "\n";
-        } else if (error_msg.find("403") != std::string::npos) {
-            std::cout << utils::Console::error("Token does not have sufficient permissions") << "\n";
-        } else if (error_msg.find("404") != std::string::npos) {
-            std::cout << utils::Console::error("Service not found - check the token server") << "\n";
-        } else if (error_msg.find("timeout") != std::string::npos || error_msg.find("connection") != std::string::npos) {
-            std::cout << utils::Console::error("Connection failed - check your network connection") << "\n";
-        } else {
-            std::cout << utils::Console::error("Auto-provisioning failed: ") << error_msg << "\n";
-        }
-        
-        spdlog::debug("Auto provision failed: {}", e.what());
+        std::cout << utils::Console::error("Invalid provisioning token - check your token") << "\n";
+        spdlog::debug("JWT decode failed: {}", e.what());
         throw std::runtime_error("Auto-provisioning failed");
     }
+
+    auto [device_id, device_name] = prompt_device_info();
+
+    auto credentials = auto_provision_with_conflict_resolution(token, device_id, device_name);
+    std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
+
+    return credentials;
 }
 
 config::DeviceCredentials interactive_setup::device_flow_auth() {
     utils::Console::printSectionHeader("Browser authentication", "🌐");
-    
+
     std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
-    
+
     std::cout << utils::Console::loading("Initiating device authorization flow...") << "\n";
-    
-    try {
-        // Note: SSL fallback is handled automatically by auth_manager
-        // If SSL verification fails, it will retry with insecure connection and show warnings
-        
-        // Start the device flow
-        auto device_response = auth_manager_.start_device_flow(host, OAUTH2_CLIENT_ID);
-        
-        // Display instructions to user
-        std::cout << utils::Console::success("Device authorization started!") << "\n\n";
-        std::cout << utils::Console::cyan("To complete authentication:") << "\n";
-        std::string activation_url = device_response.verification_uri + "?user_code=" + device_response.user_code;
-        std::cout << "1. Open your web browser and go to: " << utils::Console::bold(utils::Console::hyperlink(activation_url)) << "\n";
-        std::cout << "2. Follow the instructions to authorize this device\n\n";
-        std::cout << utils::Console::info("This code expires in ", false) << device_response.expires_in << " seconds\n\n";
-        
-        std::cout << utils::Console::loading("Waiting for authorization...") << "\n";
-        
-        // Poll for the access token using the interval from device flow response
-        std::string access_token = auth_manager_.poll_device_token(
-            host, 
-            OAUTH2_CLIENT_ID, 
-            device_response.device_code,
-            device_response.expires_in,
-            device_response.interval
-        );
-        
-        std::cout << utils::Console::success("Authorization successful!") << "\n\n";
-        
-        // Device provisioning section
-        utils::Console::printSectionHeader("Device Provisioning", "🖥️");
-        
-        // Get default device ID (hostname)
-        std::string default_device_id = get_default_device_id();
-        
-        std::cout << "Enter device identifier (unique name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device ID [" << default_device_id << "]: ";
-        std::string device_id_input;
-        std::getline(std::cin, device_id_input);
-        std::string device_id = device_id_input.empty() ? default_device_id : device_id_input;
-        
-        // Get device name (human-friendly name)
-        std::string default_device_name = get_default_device_name();
-        std::cout << "\nEnter device name (human-friendly name for this device):\n";
-        std::cout << utils::Console::userPrompt() << "Device Name [" << default_device_name << "]: ";
-        std::string device_name_input;
-        std::getline(std::cin, device_name_input);
-        std::string device_name = device_name_input.empty() ? default_device_name : device_name_input;
-        
-        // Extract username from the JWT access token
-        std::string username;
-        try {
-            nlohmann::json payload = auth_manager_.decode_jwt_payload(access_token);
-            if (payload.contains("usr")) {
-                username = payload["usr"];
-                spdlog::debug("Extracted username from token: {}", username);
-            } else {
-                throw std::runtime_error("JWT token missing 'usr' field");
-            }
-        } catch (const std::exception& e) {
-            spdlog::error("Failed to extract username from JWT: {}", e.what());
-            throw std::runtime_error("Failed to extract username from access token: " + std::string(e.what()));
-        }
-        
-        auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, access_token);
-        std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
-        
-        return credentials;
-        
-    } catch (const std::exception& e) {
-        std::string error_msg = e.what();
-        
-        // Parse common device flow errors and provide user-friendly messages
-        if (error_msg.find("timeout") != std::string::npos) {
-            std::cout << utils::Console::error("Authorization timeout - please try again") << "\n";
-        } else if (error_msg.find("access_denied") != std::string::npos) {
-            std::cout << utils::Console::error("Authorization denied by user") << "\n";
-        } else if (error_msg.find("expired_token") != std::string::npos) {
-            std::cout << utils::Console::error("Device code expired - please try again") << "\n";
-        } else if (error_msg.find("connection") != std::string::npos || error_msg.find("404") != std::string::npos) {
-            std::cout << utils::Console::error("Connection failed - check your network connection and host URL") << "\n";
-        } else {
-            std::cout << utils::Console::error("Device flow failed: ") << error_msg << "\n";
-        }
-        
-        spdlog::debug("Device flow failed: {}", e.what());
+
+    // Start the device flow
+    auto device_flow = auth_manager_.start_device_flow(host, OAUTH2_CLIENT_ID);
+
+    if (!device_flow.success) {
+        show_device_flow_error(device_flow);
         throw std::runtime_error("Device flow authentication failed");
     }
+
+    const auto& device_response = device_flow.response;
+
+    // Display instructions to user
+    std::cout << utils::Console::success("Device authorization started!") << "\n\n";
+    std::cout << utils::Console::cyan("To complete authentication:") << "\n";
+    std::string activation_url = device_response.verification_uri + "?user_code=" + device_response.user_code;
+    std::cout << "1. Open your web browser and go to: " << utils::Console::bold(utils::Console::hyperlink(activation_url)) << "\n";
+    std::cout << "2. Follow the instructions to authorize this device\n\n";
+    std::cout << utils::Console::info("This code expires in ", false) << device_response.expires_in << " seconds\n\n";
+
+    std::cout << utils::Console::loading("Waiting for authorization...") << "\n";
+
+    // Poll for the access token
+    auto poll_result = auth_manager_.poll_device_token(
+        host,
+        OAUTH2_CLIENT_ID,
+        device_response.device_code,
+        device_response.expires_in,
+        device_response.interval
+    );
+
+    if (!poll_result.success) {
+        show_auth_error(poll_result);
+        throw std::runtime_error("Device flow authentication failed");
+    }
+
+    std::cout << utils::Console::success("Authorization successful!") << "\n\n";
+
+    auto [device_id, device_name] = prompt_device_info();
+
+    // Extract username from the JWT access token
+    std::string username;
+    try {
+        nlohmann::json payload = auth_manager_.decode_jwt_payload(poll_result.access_token);
+        if (payload.contains("usr")) {
+            username = payload["usr"];
+            spdlog::debug("Extracted username from token: {}", username);
+        } else {
+            throw std::runtime_error("JWT token missing 'usr' field");
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to extract username from JWT: {}", e.what());
+        throw std::runtime_error("Failed to extract username from access token: " + std::string(e.what()));
+    }
+
+    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, poll_result.access_token);
+    std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
+
+    return credentials;
 }
 
 config::DeviceCredentials interactive_setup::direct_credentials_auth() {
@@ -710,31 +601,24 @@ bool interactive_setup::save_configuration_only(const config::DeviceCredentials&
     }
 }
 
-void interactive_setup::test_interactive_menu() {
-    std::vector<std::string> options = {
-        "Install as service (recommended) - Starts automatically when system boots",
-        "Save configuration for manual use - Run when needed, full control",
-        "Don't save configuration - Just testing, don't install anything",
-        "Exit this test menu"
-    };
-    
-    int choice = utils::Console::getUserChoice(options, "Installation Options Test");
-    
-    if (choice < 1 || choice > static_cast<int>(options.size())) {
-        std::cout << utils::Console::warning("Invalid selection") << "\n";
-        return;
-    }
-    
-    std::cout << utils::Console::success("You selected option ") << choice << ": " << options[choice - 1] << "\n";
-    
-    // Ask if they want to try again
-    std::cout << "\n" << utils::Console::userPrompt() << "Try again? [y/N]: ";
-    std::string input;
-    std::getline(std::cin, input);
-    
-    if (!input.empty() && std::tolower(input[0]) == 'y') {
-        test_interactive_menu(); // Recursive call to test again
-    }
+std::pair<std::string, std::string> interactive_setup::prompt_device_info() {
+    utils::Console::printSectionHeader("Device Provisioning", "🖥️");
+
+    std::string default_device_id = get_default_device_id();
+    std::cout << "Enter device identifier (unique name for this device):\n";
+    std::cout << utils::Console::userPrompt() << "Device ID [" << default_device_id << "]: ";
+    std::string device_id_input;
+    std::getline(std::cin, device_id_input);
+    std::string device_id = device_id_input.empty() ? default_device_id : device_id_input;
+
+    std::string default_device_name = get_default_device_name();
+    std::cout << "\nEnter device name (human-friendly name for this device):\n";
+    std::cout << utils::Console::userPrompt() << "Device Name [" << default_device_name << "]: ";
+    std::string device_name_input;
+    std::getline(std::cin, device_name_input);
+    std::string device_name = device_name_input.empty() ? default_device_name : device_name_input;
+
+    return {device_id, device_name};
 }
 
 std::string interactive_setup::get_default_device_id() {
@@ -992,80 +876,47 @@ config::DeviceCredentials interactive_setup::provision_with_conflict_resolution(
     const std::string& initial_device_id,
     const std::string& device_name,
     const std::string& access_token) {
-    
-    std::string device_id = initial_device_id;
-    
-    while (true) {
-        // Ask for device ID only if we need a new one due to conflict
-        if (device_id.empty()) {
-            std::string default_device_id = "thinremote-device";
-            std::cout << "Enter device identifier (unique name for this device):\n";
-            std::cout << utils::Console::userPrompt() << "Device ID [" << default_device_id << "]: ";
-            std::string device_id_input;
-            std::getline(std::cin, device_id_input);
-            device_id = device_id_input.empty() ? default_device_id : device_id_input;
+
+    return provision_with_conflict_loop(
+        initial_device_id, device_name,
+        [&](const std::string& did, const std::string& dname) {
+            return auth_manager_.provision_device(host, username, did, dname, access_token);
+        },
+        [&](const std::string& did) {
+            return auth_manager_.delete_device(host, username, did, access_token);
         }
-        
-        std::cout << "\n" << utils::Console::loading("Provisioning device: ") << device_id << "..." << "\n";
-        
-        try {
-            auto credentials = auth_manager_.provision_device(host, username, device_id, device_name, access_token);
-            return credentials;  // Success!
-            
-        } catch (const std::exception& e) {
-            std::string error_msg = e.what();
-            
-            // Check if it's a 409 conflict error
-            if (error_msg.find("409") != std::string::npos && 
-                error_msg.find("already exists") != std::string::npos) {
-                
-                ConflictResolution resolution = handle_device_conflict(device_id);
-                
-                switch (resolution) {
-                    case ConflictResolution::CHOOSE_NEW_ID:
-                        device_id.clear();  // Force asking for new ID
-                        break;
-                        
-                    case ConflictResolution::OVERWRITE:
-                        std::cout << utils::Console::loading("Deleting existing device...") << "\n";
-                        if (auth_manager_.delete_device(host, username, device_id, access_token)) {
-                            std::cout << utils::Console::success("Device deleted") << "\n";
-                            std::cout << utils::Console::loading("Creating new device...") << "\n";
-                            try {
-                                auto credentials = auth_manager_.provision_device(host, username, device_id, device_name, access_token);
-                                return credentials;  // Success after deletion!
-                            } catch (const std::exception& retry_error) {
-                                spdlog::error("Failed to create device after deletion: {}", retry_error.what());
-                                throw std::runtime_error("Error creating device after deletion: " + std::string(retry_error.what()));
-                            }
-                        } else {
-                            std::cout << utils::Console::error("Error deleting existing device") << "\n";
-                            device_id.clear();  // Force asking for new ID
-                        }
-                        break;
-                        
-                    case ConflictResolution::GO_BACK:
-                        throw std::runtime_error("Setup cancelled by user");
-                }
-            } else {
-                // Not a conflict error, re-throw original exception
-                throw;
-            }
-        }
-    }
-    
-    throw std::runtime_error("Failed to provision device");
+    );
 }
 
 config::DeviceCredentials interactive_setup::auto_provision_with_conflict_resolution(
     const std::string& token,
     const std::string& initial_device_id,
     const std::string& device_name) {
-    
+
+    return provision_with_conflict_loop(
+        initial_device_id, device_name,
+        [&](const std::string& did, const std::string& dname) {
+            return auth_manager_.auto_provision_with_device_id(token, did, dname);
+        },
+        [&](const std::string& did) {
+            nlohmann::json payload = auth_manager_.decode_jwt_payload(token);
+            std::string host = payload.value("svr", "");
+            std::string username = payload.value("usr", "");
+            if (host.empty() || username.empty()) return false;
+            return auth_manager_.delete_device(host, username, did, token);
+        }
+    );
+}
+
+config::DeviceCredentials interactive_setup::provision_with_conflict_loop(
+    const std::string& initial_device_id,
+    const std::string& device_name,
+    ProvisionFn provision_fn,
+    DeleteFn delete_fn) {
+
     std::string device_id = initial_device_id;
-    
+
     while (true) {
-        // Ask for device ID only if we need a new one due to conflict
         if (device_id.empty()) {
             std::string default_device_id = "thinremote-device";
             std::cout << "Enter device identifier (unique name for this device):\n";
@@ -1074,67 +925,104 @@ config::DeviceCredentials interactive_setup::auto_provision_with_conflict_resolu
             std::getline(std::cin, device_id_input);
             device_id = device_id_input.empty() ? default_device_id : device_id_input;
         }
-        
+
         std::cout << "\n" << utils::Console::loading("Provisioning device: ") << device_id << "..." << "\n";
-        
-        try {
-            auto credentials = auth_manager_.auto_provision_with_device_id(token, device_id, device_name);
-            return credentials;  // Success!
-            
-        } catch (const std::exception& e) {
-            std::string error_msg = e.what();
-            
-            // Check if it's a 409 conflict error
-            if (error_msg.find("409") != std::string::npos && 
-                error_msg.find("already exists") != std::string::npos) {
-                
-                ConflictResolution resolution = handle_device_conflict(device_id);
-                
-                switch (resolution) {
-                    case ConflictResolution::CHOOSE_NEW_ID:
-                        device_id.clear();  // Force asking for new ID
-                        break;
-                        
-                    case ConflictResolution::OVERWRITE:
-                        // For auto-provision, we need to extract host and username from JWT first
-                        try {
-                            nlohmann::json payload = auth_manager_.decode_jwt_payload(token);
-                            std::string host = payload["svr"];
-                            std::string username = payload["usr"];
-                            
-                            std::cout << utils::Console::loading("Deleting existing device...") << "\n";
-                            if (auth_manager_.delete_device(host, username, device_id, token)) {
-                                std::cout << utils::Console::success("Device deleted") << "\n";
-                                std::cout << utils::Console::loading("Creating new device...") << "\n";
-                                try {
-                                    auto credentials = auth_manager_.auto_provision_with_device_id(token, device_id, device_name);
-                                    return credentials;  // Success after deletion!
-                                } catch (const std::exception& retry_error) {
-                                    spdlog::error("Failed to create device after deletion: {}", retry_error.what());
-                                    throw std::runtime_error("Error creating device after deletion: " + std::string(retry_error.what()));
-                                }
-                            } else {
-                                std::cout << utils::Console::error("Error deleting existing device") << "\n";
-                                device_id.clear();  // Force asking for new ID
-                            }
-                        } catch (const std::exception& jwt_error) {
-                            spdlog::error("Failed to parse JWT for device deletion: {}", jwt_error.what());
-                            std::cout << utils::Console::error("Cannot delete device: Invalid JWT token") << "\n";
-                            device_id.clear();  // Force asking for new ID
+
+        auto result = provision_fn(device_id, device_name);
+
+        if (result.success) {
+            return result.credentials;
+        }
+
+        if (result.status_code == 409) {
+            ConflictResolution resolution = handle_device_conflict(device_id);
+
+            switch (resolution) {
+                case ConflictResolution::CHOOSE_NEW_ID:
+                    device_id.clear();
+                    break;
+
+                case ConflictResolution::OVERWRITE:
+                    std::cout << utils::Console::loading("Deleting existing device...") << "\n";
+                    if (delete_fn(device_id)) {
+                        std::cout << utils::Console::success("Device deleted") << "\n";
+                        std::cout << utils::Console::loading("Creating new device...") << "\n";
+                        auto retry = provision_fn(device_id, device_name);
+                        if (retry.success) {
+                            return retry.credentials;
                         }
-                        break;
-                        
-                    case ConflictResolution::GO_BACK:
-                        throw std::runtime_error("Setup cancelled by user");
-                }
-            } else {
-                // Not a conflict error, re-throw original exception
-                throw;
+                        spdlog::error("Failed to create device after deletion (HTTP {})", retry.status_code);
+                    }
+                    std::cout << utils::Console::error("Error recreating device, try a different ID") << "\n";
+                    device_id.clear();
+                    break;
+
+                case ConflictResolution::GO_BACK:
+                    throw setup_cancelled("Setup cancelled by user");
             }
+        } else {
+            throw std::runtime_error("Device provisioning failed (HTTP " + std::to_string(result.status_code) + ")");
         }
     }
-    
-    throw std::runtime_error("Failed to provision device");
+}
+
+void interactive_setup::show_auth_error(const auth::auth_manager::AuthResult& result) {
+    using auth::AuthError;
+    switch (result.error) {
+        case AuthError::invalid_credentials:
+            std::cout << utils::Console::error("Invalid username or password") << "\n";
+            break;
+        case AuthError::access_denied:
+            std::cout << utils::Console::error("Access denied - check your permissions") << "\n";
+            break;
+        case AuthError::not_found:
+            std::cout << utils::Console::error("Host not found - check the ThinRemote host URL") << "\n";
+            break;
+        case AuthError::network_error:
+            std::cout << utils::Console::error("Connection failed - check your network connection") << "\n";
+            break;
+        case AuthError::ssl_error:
+            std::cout << utils::Console::error("SSL connection failed") << "\n";
+            break;
+        case AuthError::timeout:
+            std::cout << utils::Console::error("Authorization timeout - please try again") << "\n";
+            break;
+        case AuthError::user_denied:
+            std::cout << utils::Console::error("Authorization denied by user") << "\n";
+            break;
+        case AuthError::token_expired:
+            std::cout << utils::Console::error("Device code expired - please try again") << "\n";
+            break;
+        case AuthError::invalid_response:
+            std::cout << utils::Console::error("Invalid server response") << "\n";
+            break;
+        case AuthError::server_error:
+            std::cout << utils::Console::error("Server error") << "\n";
+            break;
+        default:
+            std::cout << utils::Console::error("Authentication failed: ") << result.error_detail << "\n";
+            break;
+    }
+    spdlog::debug("Auth error (status {}): {}", result.status_code, result.error_detail);
+}
+
+void interactive_setup::show_device_flow_error(const auth::auth_manager::DeviceFlowResult& result) {
+    using auth::AuthError;
+    switch (result.error) {
+        case AuthError::not_found:
+            std::cout << utils::Console::error("Host not found - check the ThinRemote host URL") << "\n";
+            break;
+        case AuthError::network_error:
+            std::cout << utils::Console::error("Connection failed - check your network connection and host URL") << "\n";
+            break;
+        case AuthError::ssl_error:
+            std::cout << utils::Console::error("SSL connection failed") << "\n";
+            break;
+        default:
+            std::cout << utils::Console::error("Device flow failed: ") << result.error_detail << "\n";
+            break;
+    }
+    spdlog::debug("Device flow error (status {}): {}", result.status_code, result.error_detail);
 }
 
 } // namespace thinr::installer

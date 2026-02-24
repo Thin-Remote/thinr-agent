@@ -2,7 +2,7 @@
 
 <div align="center">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/arch-x86__64%20%7C%20arm64%20%7C%20armv7%20%7C%20armv6-green" alt="Architecture">
+  <img src="https://img.shields.io/badge/arch-x86__64%20%7C%20arm64%20%7C%20armv7%20%7C%20armv5%20%7C%20mips-green" alt="Architecture">
   <img src="https://img.shields.io/badge/c%2B%2B-20-blue.svg" alt="C++ Standard">
   <img src="https://img.shields.io/github/license/Thin-Remote/thinr-agent" alt="License">
 </div>
@@ -28,13 +28,17 @@ curl -fsSL https://raw.githubusercontent.com/Thin-Remote/thinr-agent/main/script
 ## ✨ Features
 
 - **System Monitoring**: Real-time metrics for CPU, memory, disk, network, and I/O
+- **Remote Terminal**: Secure shell access to devices from the platform
+- **File System**: Remote file browsing, upload, and download
+- **Remote Commands**: Execute commands on devices remotely
+- **Reverse Proxy**: Access local device services through the platform
 - **Multi-Platform**: Native support for Linux (all distributions) and macOS
 - **Zero Dependencies**: Statically linked with musl libc for maximum portability
 - **Auto-Installation**: Self-installing as system service (systemd, launchd, etc.)
 - **Secure Communication**: TLS/SSL encrypted connection to Thinger.io platform
 - **Low Resource Usage**: Minimal CPU and memory footprint
 - **Device Management**: Automatic device provisioning and authentication
-- **Cross-Architecture**: x86_64, ARM64, ARMv7, ARMv6, and i386 support
+- **Cross-Architecture**: x86_64, ARM64, ARMv7, ARMv5, i386, i686, MIPS, and MIPSel support
 
 ## 📋 System Requirements
 
@@ -46,8 +50,10 @@ curl -fsSL https://raw.githubusercontent.com/Thin-Remote/thinr-agent/main/script
 - x86_64 / amd64
 - aarch64 / arm64
 - armv7 / armhf
-- armv6
-- i386
+- armv5l
+- i686 / i386
+- mips / mipsel
+- mipsel-sf (soft-float)
 
 ### Supported Init Systems
 - systemd
@@ -141,7 +147,7 @@ ThinRemote Agent collects and reports:
 - C++20 compatible compiler (GCC 10+, Clang 10+)
 - CMake 3.11+
 - OpenSSL development libraries
-- Boost libraries (program_options)
+- Boost libraries (program_options, iostreams, system, filesystem, process, date_time)
 
 ### Build Commands
 

@@ -1,5 +1,7 @@
 #include "argument_parser.hpp"
+#include <algorithm>
 #include <iostream>
+#include <vector>
 
 namespace thinr::cli {
 
@@ -8,30 +10,48 @@ argument_parser::argument_parser() = default;
 ParseResult argument_parser::parse(int argc, char* argv[]) {
     namespace po = boost::program_options;
     ParseResult result;
-    
+
     try {
+        // Pre-process arguments: expand -vv, -vvv into verbosity level
+        std::vector<std::string> args;
+        int verbose_count = 0;
+        for (int i = 1; i < argc; ++i) {
+            std::string arg(argv[i]);
+            // Match -v, -vv, -vvv, etc.
+            if (arg.size() >= 2 && arg[0] == '-' && arg[1] != '-' &&
+                arg.find_first_not_of('v', 1) == std::string::npos) {
+                verbose_count += static_cast<int>(arg.size() - 1);
+            } else {
+                args.push_back(arg);
+            }
+        }
+
         // First, parse global options and command
         po::options_description global_desc("Global options");
         global_desc.add_options()
             ("help,h", "show this help message")
             ("version", "show version information")
-            ("verbosity,v", po::value<int>(&result.verbosity_level)->default_value(1), "set verbosity level (0-4)")
             ("config,c", po::value<std::string>(&result.config_path), "path to configuration file")
             ("command", po::value<std::string>(&result.command_str), "command to execute");
-        
+
         po::positional_options_description pos_desc;
         pos_desc.add("command", 1);
-        
+
         // Parse global options and command
         po::variables_map vm;
-        po::parsed_options parsed = po::command_line_parser(argc, argv)
+        po::parsed_options parsed = po::command_line_parser(args)
             .options(global_desc)
             .positional(pos_desc)
             .allow_unregistered() // Important: allows command-specific options
             .run();
-        
+
         po::store(parsed, vm);
         po::notify(vm);
+
+        // Set verbosity: -v = info(3), -vv = debug(4)
+        if (verbose_count > 0) {
+            result.verbosity_level = std::min(2 + verbose_count, 4);
+        }
         
         // Check for help at global level
         if (vm.count("help")) {
@@ -110,7 +130,7 @@ void argument_parser::show_general_help() const {
     std::cout << "  test             Test connection with current config\n\n";
     std::cout << "General options:\n";
     std::cout << "  -h, --help       Show help message\n";
-    std::cout << "  -v, --verbosity  Set verbosity level (0=off, 1=err, 2=warn, 3=info, 4=debug)\n";
+    std::cout << "  -v               Increase verbosity (-v=info, -vv=debug)\n";
     std::cout << "  -c, --config     Path to configuration file\n\n";
     std::cout << "For command-specific help, use: thinr-agent <command> --help\n";
 }
@@ -139,7 +159,6 @@ ParseResult::Command argument_parser::string_to_command(const std::string& cmd) 
     if (cmd == "status") return ParseResult::Command::CMD_STATUS;
     if (cmd == "test") return ParseResult::Command::TEST;
     if (cmd == "reconfigure") return ParseResult::Command::RECONFIGURE;
-    if (cmd == "test-menu") return ParseResult::Command::TEST_MENU;
     return ParseResult::Command::UNKNOWN;
 }
 

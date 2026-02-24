@@ -1,5 +1,6 @@
 #include "service_manager.hpp"
 #include "../utils/console.hpp"
+#include "../installer/installation_config.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -313,9 +314,31 @@ bool service_manager::restart_service() {
 
 bool service_manager::view_logs() {
     std::cout << "\nService logs:\n";
-    // TODO: Implement log viewing
-    system("journalctl -u thin-remote -n 20 --no-pager || launchctl log show --predicate 'subsystem == \"io.thinremote.agent\"' --last 1h");
-    return true; // Return to exit
+
+    std::string service_name = installer::InstallationConfig::SERVICE_NAME;
+
+    // Try platform-specific log viewers in order
+    if (std::filesystem::exists("/bin/logread") || std::filesystem::exists("/sbin/logread")) {
+        // OpenWrt/procd — logread with grep for our service
+        std::string cmd = "logread | grep -i " + service_name + " | tail -30";
+        system(cmd.c_str());
+    } else if (std::filesystem::exists("/bin/journalctl") || std::filesystem::exists("/usr/bin/journalctl")) {
+        // systemd — journalctl
+        std::string cmd = "journalctl -u " + service_name + " -n 30 --no-pager";
+        system(cmd.c_str());
+    } else {
+        // Fallback — check /var/log for service log files
+        std::string log_file = "/var/log/" + service_name + ".log";
+        if (std::filesystem::exists(log_file)) {
+            std::string cmd = "tail -30 " + log_file;
+            system(cmd.c_str());
+        } else {
+            std::cout << "No supported log viewer found.\n";
+            std::cout << "Try checking /var/log/syslog or /var/log/messages manually.\n";
+        }
+    }
+
+    return true; // Return to menu
 }
 
 installer::service_installer::ServiceStatus service_manager::get_service_status() const {
