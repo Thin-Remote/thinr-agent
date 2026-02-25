@@ -43,7 +43,7 @@ void Console::printBanner(const std::string& title, const std::string& subtitle)
     std::cout << "░▀█▀░█░█░▀█▀░█▀█░█▀▄░█▀▀░█▄█░█▀█░▀█▀░█▀▀" << "\n";
     std::cout << "░░█░░█▀█░░█░░█░█░█▀▄░█▀▀░█░█░█░█░░█░░█▀▀" << "\n";
     std::cout << "░░▀░░▀░▀░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀" << "\n";
-    std::cout << "\n" << GRAY << "ThinRemote Monitor Agent v.1.0.0" << RESET << "\n\n";
+    std::cout << "\n" << GRAY << "ThinRemote Agent " << AGENT_VERSION << RESET << "\n\n";
 }
 
 void Console::printMenu(const std::string& title, const std::vector<std::string>& options) {
