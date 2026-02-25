@@ -230,10 +230,44 @@ jobs:
         # Upload install script to S3
         aws s3 cp ${{ steps.channel.outputs.install_script }} s3://${{ secrets.S3_BUCKET }}/ --cache-control "max-age=300"
         
-        # Also update a latest version pointer for tags
+        # Generate version metadata JSON with checksums
+        CHANNEL="${{ steps.channel.outputs.channel }}"
+        VERSION="$CHANNEL"
+
+        # Generate checksums for all binaries in this channel
+        CHECKSUMS="{"
+        FIRST=true
+        for binary in binaries/$CHANNEL/thinr-agent.*; do
+          [ -f "$binary" ] || continue
+          SUFFIX="$(basename "$binary" | sed 's/^thinr-agent\.//')"
+          SHA256="$(sha256sum "$binary" | awk '{print $1}')"
+          if [ "$FIRST" = true ]; then
+            FIRST=false
+          else
+            CHECKSUMS="$CHECKSUMS,"
+          fi
+          CHECKSUMS="$CHECKSUMS\"$SUFFIX\":\"sha256:$SHA256\""
+        done
+        CHECKSUMS="$CHECKSUMS}"
+
+        # Upload channel.json (e.g., latest.json, main.json, develop.json)
+        cat > ${CHANNEL}.json << EOJSON
+        {
+          "version": "$VERSION",
+          "checksums": $CHECKSUMS
+        }
+        EOJSON
+
+        aws s3 cp ${CHANNEL}.json s3://${{ secrets.S3_BUCKET }}/ \
+          --cache-control "max-age=60" \
+          --content-type "application/json"
+
+        # For releases, also upload as latest.json
         if [[ "${{ github.event_name }}" == "release" ]]; then
-          echo "${{ steps.channel.outputs.channel }}" > latest-version.txt
-          aws s3 cp latest-version.txt s3://${{ secrets.S3_BUCKET }}/ --cache-control "max-age=60"
+          cp ${CHANNEL}.json latest.json
+          aws s3 cp latest.json s3://${{ secrets.S3_BUCKET }}/ \
+            --cache-control "max-age=60" \
+            --content-type "application/json"
         fi
 
     - name: Invalidate CloudFront cache
@@ -243,5 +277,5 @@ jobs:
       run: |
         aws cloudfront create-invalidation \
           --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
-          --paths "/${{ steps.channel.outputs.install_script }}" "/binaries/${{ steps.channel.outputs.channel }}/*"
+          --paths "/${{ steps.channel.outputs.install_script }}" "/binaries/${{ steps.channel.outputs.channel }}/*" "/${{ steps.channel.outputs.channel }}.json" "/latest.json"
 

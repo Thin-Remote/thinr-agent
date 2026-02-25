@@ -28,6 +28,7 @@ agent::agent(const config::DeviceCredentials& credentials)
     nlohmann::json empty_config = {};
     init_agent_info();
     init_monitoring();
+    init_updater();
     init_shell(empty_config);
     init_cmd(empty_config);
     init_proxy(empty_config);
@@ -56,6 +57,7 @@ void agent::stop() {
 
     // Clear extensions
     monitoring_.reset();
+    updater_.reset();
     shell_.reset();
     cmd_.reset();
     proxy_.reset();
@@ -125,6 +127,11 @@ void agent::init_filesystem(const nlohmann::json &config) {
 void agent::init_monitoring() {
     spdlog::info("Initializing monitoring extension");
     monitoring_.emplace(client_);
+}
+
+void agent::init_updater() {
+    spdlog::info("Initializing updater extension");
+    updater_.emplace(client_);
 }
 
 void agent::init_property_streams() {

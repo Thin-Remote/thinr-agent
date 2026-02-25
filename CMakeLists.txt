@@ -57,6 +57,19 @@ message(STATUS "Agent version: ${AGENT_VERSION}")
 # Pass version to source code
 add_definitions(-DAGENT_VERSION=\"${AGENT_VERSION}\")
 
+# Determine binary suffix for CDN downloads (must match the binary names in S3)
+# CI passes -DARCH=<target> which is the exact name used in the bucket.
+if(DEFINED ARCH)
+    set(AGENT_BINARY_SUFFIX "${ARCH}")
+elseif(APPLE)
+    set(AGENT_BINARY_SUFFIX "${CMAKE_SYSTEM_PROCESSOR}-darwin")
+else()
+    execute_process(COMMAND uname -m OUTPUT_VARIABLE _arch OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(AGENT_BINARY_SUFFIX "${_arch}-linux-musl")
+endif()
+add_definitions(-DAGENT_BINARY_SUFFIX=\"${AGENT_BINARY_SUFFIX}\")
+message(STATUS "Agent binary suffix: ${AGENT_BINARY_SUFFIX}")
+
 # check c++20 support
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
