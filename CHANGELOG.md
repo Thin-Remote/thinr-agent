@@ -1,6 +1,18 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-02-25
+
+### Added
+- Remote self-update via IOTMP `update` resource
+  - Check/apply actions for safe fleet-wide update management
+  - SHA256 checksum verification of downloaded binaries
+  - Configurable channels (latest, main, develop)
+  - Platform-specific binary suffix for CDN downloads
+- System monitoring extension with CPU, memory, disk, network, and load metrics
+- Agent version and system_info IOTMP resources
+- CI generates per-channel JSON metadata with version and checksums
+
 ## [1.0.0] - 2026-02-24
 
 ### Initial Release
