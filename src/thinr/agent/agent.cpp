@@ -5,6 +5,7 @@
 #include <thinger/iotmp/client.hpp>
 #include <thinger/util/logger.hpp>
 #include <sys/utsname.h>
+#include <filesystem>
 
 namespace thinr::agent {
 
@@ -26,10 +27,14 @@ agent::agent(const config::DeviceCredentials& credentials)
     // Initialize all extensions by default
     nlohmann::json empty_config = {};
     init_agent_info();
+    init_monitoring();
     init_shell(empty_config);
     init_cmd(empty_config);
     init_proxy(empty_config);
     init_filesystem(empty_config);
+
+    // Subscribe to remote config property
+    init_property_streams();
 }
 
 agent::~agent() {
@@ -50,6 +55,7 @@ void agent::stop() {
     spdlog::info("Stopping ThinRemote agent");
 
     // Clear extensions
+    monitoring_.reset();
     shell_.reset();
     cmd_.reset();
     proxy_.reset();
@@ -114,6 +120,62 @@ void agent::init_proxy(const nlohmann::json& config) {
 void agent::init_filesystem(const nlohmann::json &config) {
     spdlog::info("Initializing filesystem extension");
     filesystem_.emplace(client_);
+}
+
+void agent::init_monitoring() {
+    spdlog::info("Initializing monitoring extension");
+    monitoring_.emplace(client_);
+}
+
+void agent::init_property_streams() {
+    spdlog::info("Subscribing to remote config property");
+
+    auto& config_stream = client_.property_stream("config", true);
+    config_stream.set_input([this](thinger::iotmp::input& in) {
+        auto& payload = in.payload();
+        if (payload.is_null() || !payload.is_object()) {
+            spdlog::debug("Config property is empty, using defaults");
+            return;
+        }
+        spdlog::info("Received remote config update");
+        apply_config(payload);
+    });
+}
+
+void agent::apply_config(const nlohmann::json& config) {
+    // Monitoring: configurable disk paths
+    if (config.contains("monitoring") && monitoring_.has_value()) {
+        const auto& mon = config["monitoring"];
+        if (mon.contains("disks") && mon["disks"].is_object()) {
+            std::map<std::string, std::string> paths;
+            for (const auto& [name, path] : mon["disks"].items()) {
+                if (!path.is_string()) continue;
+                auto p = path.get<std::string>();
+                if (p.empty() || p[0] != '/' || p.find("..") != std::string::npos) {
+                    spdlog::warn("Ignoring invalid disk path '{}': {}", name, p);
+                    continue;
+                }
+                paths[name] = std::move(p);
+            }
+            monitoring_->set_disk_paths(std::move(paths));
+        }
+    }
+
+    // Filesystem: configurable base path
+    if (config.contains("filesystem")) {
+        const auto& fs = config["filesystem"];
+        if (fs.contains("base_path") && fs["base_path"].is_string()) {
+            auto base_path = fs["base_path"].get<std::string>();
+            if (!base_path.empty() && base_path[0] == '/' &&
+                base_path.find("..") == std::string::npos &&
+                std::filesystem::is_directory(base_path)) {
+                spdlog::info("Reconfiguring filesystem base_path: {}", base_path);
+                filesystem_->set_base_path(base_path);
+            } else {
+                spdlog::warn("Ignoring invalid filesystem base_path: {}", base_path);
+            }
+        }
+    }
 }
 
 } // namespace thinr::agent
