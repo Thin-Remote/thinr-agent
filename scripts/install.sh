@@ -158,9 +158,27 @@ detect_arch() {
                 ARCH="mipsel"
             fi
             ;;
+        mips64)
+            ARCH="mips64"
+            ;;
+        mips64el)
+            ARCH="mips64el"
+            ;;
+        ppc|powerpc)
+            ARCH="powerpc"
+            ;;
+        ppc64le|powerpc64le)
+            ARCH="powerpc64le"
+            ;;
+        riscv32)
+            ARCH="riscv32"
+            ;;
+        riscv64)
+            ARCH="riscv64"
+            ;;
         *)
             echo "Error: Unsupported architecture: $(uname -m)"
-            echo "Supported architectures: x86_64, aarch64, armv7, armv6, armv5, i386, mips, mipsel"
+            echo "Supported architectures: x86_64, aarch64, armv7, armv6, armv5, i386, i686, mips, mipsel, mips64, mips64el, powerpc, powerpc64le, riscv32, riscv64"
             exit 1
             ;;
     esac
@@ -229,8 +247,11 @@ construct_binary_name() {
             i386)
                 echo "${BINARY_NAME}.i386-linux-musl"
                 ;;
-            armv5|armv6)
+            armv5)
                 echo "${BINARY_NAME}.armv5l-linux-musleabi"
+                ;;
+            armv6)
+                echo "${BINARY_NAME}.armv6-linux-musleabihf"
                 ;;
             armv7)
                 echo "${BINARY_NAME}.armv7-linux-musleabihf"
@@ -238,11 +259,32 @@ construct_binary_name() {
             aarch64)
                 echo "${BINARY_NAME}.aarch64-linux-musl"
                 ;;
-            mips|mips-sf)
+            mips)
                 echo "${BINARY_NAME}.mips-linux-musl"
                 ;;
-            mipsel|mipsel-sf)
+            mipsel)
                 echo "${BINARY_NAME}.mipsel-linux-musl"
+                ;;
+            mipsel-sf)
+                echo "${BINARY_NAME}.mipsel-linux-muslsf"
+                ;;
+            mips64)
+                echo "${BINARY_NAME}.mips64-linux-musl"
+                ;;
+            mips64el)
+                echo "${BINARY_NAME}.mips64el-linux-musl"
+                ;;
+            powerpc)
+                echo "${BINARY_NAME}.powerpc-linux-musl"
+                ;;
+            powerpc64le)
+                echo "${BINARY_NAME}.powerpc64le-linux-musl"
+                ;;
+            riscv32)
+                echo "${BINARY_NAME}.riscv32-linux-musl"
+                ;;
+            riscv64)
+                echo "${BINARY_NAME}.riscv64-linux-musl"
                 ;;
             *)
                 echo "Error: No binary available for architecture: $ARCH"

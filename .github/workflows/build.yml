@@ -45,10 +45,18 @@ jobs:
           "i386-linux-musl",
           "i686-linux-musl",
           "armv5l-linux-musleabi",
+          "armv6-linux-musleabihf",
           "armv7-linux-musleabihf",
           "aarch64-linux-musl",
           "mips-linux-musl",
-          "mipsel-linux-musl"
+          "mipsel-linux-musl",
+          "mipsel-linux-muslsf",
+          "mips64-linux-musl",
+          "mips64el-linux-musl",
+          "powerpc-linux-musl",
+          "powerpc64le-linux-musl",
+          "riscv32-linux-musl",
+          "riscv64-linux-musl"
         ]
     container:
       image: ghcr.io/thin-remote/musl-toolchain:${{ matrix.target }}-latest
@@ -130,10 +138,18 @@ jobs:
           "i386-linux-musl",
           "i686-linux-musl",
           "armv5l-linux-musleabi",
+          "armv6-linux-musleabihf",
           "armv7-linux-musleabihf",
           "aarch64-linux-musl",
           "mips-linux-musl",
           "mipsel-linux-musl",
+          "mipsel-linux-muslsf",
+          "mips64-linux-musl",
+          "mips64el-linux-musl",
+          "powerpc-linux-musl",
+          "powerpc64le-linux-musl",
+          "riscv32-linux-musl",
+          "riscv64-linux-musl",
           "arm64-darwin"
         ]
 
