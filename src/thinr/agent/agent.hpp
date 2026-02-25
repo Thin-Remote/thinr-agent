@@ -12,6 +12,7 @@
 #include "thinger/iotmp/extensions/fs/filesystem.hpp"
 #include "../extensions/monitoring.hpp"
 #include "../extensions/updater.hpp"
+#include "../extensions/scripts.hpp"
 
 namespace thinr::agent {
 
@@ -48,6 +49,7 @@ private:
     std::optional<thinger::iotmp::filesystem> filesystem_;
     std::optional<thinr::extensions::monitoring> monitoring_;
     std::optional<thinr::extensions::updater> updater_;
+    std::optional<thinr::extensions::scripts> scripts_;
 
     // Extension initialization methods
     void init_agent_info();
@@ -57,6 +59,7 @@ private:
     void init_filesystem(const nlohmann::json& config);
     void init_monitoring();
     void init_updater();
+    void init_scripts();
 
     // Remote config via IOTMP properties
     void init_property_streams();

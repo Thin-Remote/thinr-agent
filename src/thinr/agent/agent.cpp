@@ -29,6 +29,7 @@ agent::agent(const config::DeviceCredentials& credentials)
     init_agent_info();
     init_monitoring();
     init_updater();
+    init_scripts();
     init_shell(empty_config);
     init_cmd(empty_config);
     init_proxy(empty_config);
@@ -56,6 +57,7 @@ void agent::stop() {
     spdlog::info("Stopping ThinRemote agent");
 
     // Clear extensions
+    scripts_.reset();
     monitoring_.reset();
     updater_.reset();
     shell_.reset();
@@ -132,6 +134,11 @@ void agent::init_monitoring() {
 void agent::init_updater() {
     spdlog::info("Initializing updater extension");
     updater_.emplace(client_);
+}
+
+void agent::init_scripts() {
+    spdlog::info("Initializing scripts extension");
+    scripts_.emplace(client_);
 }
 
 void agent::init_property_streams() {

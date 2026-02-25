@@ -68,6 +68,11 @@ std::string InstallationConfig::get_config_path(bool system_wide) const {
     }
 }
 
+std::string InstallationConfig::get_base_directory() const {
+    std::filesystem::path config_path(get_config_path());
+    return config_path.parent_path().string();
+}
+
 std::string InstallationConfig::get_systemd_service_path(bool system_wide) const {
     if (system_wide) {
         return "/etc/systemd/system/" + std::string(SERVICE_NAME) + ".service";

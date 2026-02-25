@@ -34,6 +34,9 @@ public:
     // Configuration paths (using ConfigManager logic)
     std::string get_config_path() const;
     std::string get_config_path(bool system_wide) const;
+
+    // Base directory (e.g., /etc/thinr-agent or ~/.config/thinr-agent)
+    std::string get_base_directory() const;
     
     // Service file paths
     std::string get_systemd_service_path(bool system_wide) const;
