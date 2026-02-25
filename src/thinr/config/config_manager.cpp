@@ -81,7 +81,8 @@ void config_manager::save(const DeviceCredentials& credentials) {
             {"user", credentials.device_user},
             {"token", credentials.device_token}  // Will be encrypted
         }},
-        {"version", credentials.version.empty() ? "1.0.0" : credentials.version}
+        {"version", credentials.version.empty() ? "1.0.0" : credentials.version},
+        {"verify_ssl", credentials.verify_ssl}
     };
     
     encrypt_and_save(config);
@@ -105,7 +106,8 @@ DeviceCredentials config_manager::load() {
     DeviceCredentials credentials;
     credentials.host = config.value("host", "");
     credentials.version = config.value("version", "1.0.0");
-    
+    credentials.verify_ssl = config.value("verify_ssl", true);
+
     if (config.contains("device")) {
         const auto& device = config["device"];
         credentials.device_id = device.value("id", "");

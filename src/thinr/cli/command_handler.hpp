@@ -30,6 +30,7 @@ private:
     config::config_manager config_manager_;
     auth::auth_manager auth_manager_;
     installer::service_installer service_installer_;
+    bool verify_ssl_ = true;
 
     // Install helpers
     bool install_with_token(const InstallOptions& options);

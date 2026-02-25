@@ -15,6 +15,7 @@ struct InstallOptions {
     std::string host = "backend.thinger.io";
     bool overwrite = false;
     bool no_start = false;
+    bool no_verify_ssl = false;
 };
 
 struct ParseResult {

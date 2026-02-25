@@ -127,13 +127,16 @@ int command_handler::handle_install(const InstallOptions& options) {
         return 1;
     }
     
+    // Store verify_ssl preference for use in save_and_install_service
+    verify_ssl_ = !options.no_verify_ssl;
+
     bool success;
     if (!options.token.empty()) {
         success = install_with_token(options);
     } else {
         success = install_interactive(options);
     }
-    
+
     return success ? 0 : 1;
 }
 
@@ -249,9 +252,13 @@ bool command_handler::install_interactive(const InstallOptions& options) {
 }
 
 bool command_handler::save_and_install_service(const config::DeviceCredentials& credentials, bool no_start) {
+    // Apply verify_ssl preference
+    auto final_credentials = credentials;
+    final_credentials.verify_ssl = verify_ssl_;
+
     // Save configuration
     std::cout << utils::Console::loading("Saving configuration...") << "\n";
-    config_manager_.save(credentials);
+    config_manager_.save(final_credentials);
     std::string config_path = config_manager_.get_config_path();
     std::cout << utils::Console::success("Configuration saved: " + config_path) << "\n";
     

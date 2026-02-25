@@ -555,10 +555,16 @@ std::pair<bool, bool> interactive_setup::offer_service_installation(const config
 }
 
 bool interactive_setup::install_as_service(const config::DeviceCredentials& credentials) {
+    // Persist SSL verification decision into credentials
+    auto final_credentials = credentials;
+    if (ssl_decision_ == SSLVerificationDecision::NO_VERIFY) {
+        final_credentials.verify_ssl = false;
+    }
+
     // First save configuration - service needs it to run
     std::cout << "\n" << utils::Console::loading("Saving configuration...") << "\n";
     try {
-        config_manager_.save(credentials);
+        config_manager_.save(final_credentials);
         std::string config_path = config_manager_.get_config_path();
         std::cout << utils::Console::success("Configuration saved: " + config_path) << "\n";
     } catch (const std::exception& e) {
@@ -587,10 +593,16 @@ bool interactive_setup::install_as_service(const config::DeviceCredentials& cred
 }
 
 bool interactive_setup::save_configuration_only(const config::DeviceCredentials& credentials) {
+    // Persist SSL verification decision into credentials
+    auto final_credentials = credentials;
+    if (ssl_decision_ == SSLVerificationDecision::NO_VERIFY) {
+        final_credentials.verify_ssl = false;
+    }
+
     std::cout << "\n" << utils::Console::loading("Saving configuration...") << "\n";
-    
+
     try {
-        config_manager_.save(credentials);
+        config_manager_.save(final_credentials);
         std::string config_path = config_manager_.get_config_path();
         std::cout << utils::Console::success("Configuration saved: " + config_path) << "\n";
         std::cout << utils::Console::cyan("You can now run 'thinr-agent' to start ThinRemote manually.") << "\n";

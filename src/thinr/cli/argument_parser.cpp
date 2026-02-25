@@ -77,7 +77,8 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
                 ("device", po::value<std::string>(&result.install_options.device_id), "custom device identifier (default: hostname)")
                 ("host", po::value<std::string>(&result.install_options.host)->default_value("backend.thinger.io"), "Thinger.io server host")
                 ("overwrite", po::bool_switch(&result.install_options.overwrite), "auto-overwrite existing device (no conflict prompt)")
-                ("no-start", po::bool_switch(&result.install_options.no_start), "install but don't start service immediately");
+                ("no-start", po::bool_switch(&result.install_options.no_start), "install but don't start service immediately")
+                ("no-verify-ssl", po::bool_switch(&result.install_options.no_verify_ssl), "disable SSL certificate verification");
             
             // Get unrecognized options from first parse
             std::vector<std::string> remaining = po::collect_unrecognized(parsed.options, po::include_positional);
@@ -145,11 +146,13 @@ void argument_parser::show_install_help() const {
     std::cout << "  --host HOST      Thinger.io server (default: backend.thinger.io)\n";
     std::cout << "  --overwrite      Auto-overwrite existing device\n";
     std::cout << "  --no-start       Install but don't start service\n";
+    std::cout << "  --no-verify-ssl  Disable SSL certificate verification\n";
     std::cout << "  -h, --help       Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  thinr-agent install                           # Interactive fast install\n";
     std::cout << "  thinr-agent install --token abc123            # Auto-provision with token\n";
     std::cout << "  thinr-agent install --token abc123 --device server-01 --overwrite\n";
+    std::cout << "  thinr-agent install --token abc123 --no-verify-ssl  # Self-signed certificate\n";
 }
 
 ParseResult::Command argument_parser::string_to_command(const std::string& cmd) const {

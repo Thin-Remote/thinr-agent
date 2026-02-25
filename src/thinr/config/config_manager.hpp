@@ -17,9 +17,10 @@ struct DeviceCredentials {
     std::string device_user;
     std::string device_token;
     std::string version;
-    
+    bool verify_ssl = true;
+
     bool is_valid() const {
-        return !host.empty() && !device_id.empty() && 
+        return !host.empty() && !device_id.empty() &&
                !device_user.empty() && !device_token.empty();
     }
 };
