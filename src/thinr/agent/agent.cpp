@@ -79,13 +79,13 @@ void agent::wait() {
 void agent::init_agent_info() {
     spdlog::info("Initializing agent info extension");
 
-    // Override IOTMP library version with agent version
-    client_["version"] = [](thinger::iotmp::output& out) {
+    // Agent information resource
+    client_["agent"] = [](thinger::iotmp::output& out) {
         out["version"] = AGENT_VERSION;
     };
 
     // System information resource
-    client_["system_info"] = [](thinger::iotmp::output& out) {
+    client_["system"] = [](thinger::iotmp::output& out) {
         struct utsname info;
         if (uname(&info) == 0) {
             out["system"]       = info.sysname;
@@ -123,7 +123,13 @@ void agent::init_proxy(const nlohmann::json& config) {
 
 void agent::init_filesystem(const nlohmann::json &config) {
     spdlog::info("Initializing filesystem extension");
-    filesystem_.emplace(client_);
+    // Use home directory as default base path instead of cwd
+    const char* home = std::getenv("HOME");
+    if(home) {
+        filesystem_.emplace(client_, std::filesystem::path(home));
+    } else {
+        filesystem_.emplace(client_);
+    }
 }
 
 void agent::init_monitoring() {
