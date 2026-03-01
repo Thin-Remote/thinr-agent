@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <sys/utsname.h>
 
 namespace thinr::extensions {
 
@@ -33,6 +34,8 @@ private:
     cpu_sample prev_cpu_;
     network_sample prev_net_;
     std::map<std::string, std::string> disk_paths_ = {{"root", "/"}};
+    nlohmann::json system_info_;
+    nlohmann::json agent_info_;
 
     void collect(thinger::iotmp::output& out);
     double collect_cpu();

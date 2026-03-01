@@ -1,4 +1,5 @@
 #include "monitoring.hpp"
+#include "../utils/system_info.hpp"
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <cstdlib>
@@ -37,6 +38,16 @@ monitoring::monitoring(thinger::iotmp::client& client) {
     prev_cpu_ = read_cpu_sample();
     prev_net_ = read_network_sample();
 
+    // Cache static system info (doesn't change at runtime)
+    struct utsname info;
+    if (uname(&info) == 0) {
+        system_info_["os"]           = utils::SystemInfo::get_os_description();
+        system_info_["architecture"] = info.machine;
+        system_info_["hostname"]     = info.nodename;
+        system_info_["kernel"]       = info.release;
+    }
+    agent_info_["version"] = AGENT_VERSION;
+
     client["monitoring"] = [this](thinger::iotmp::output& out) {
         collect(out);
     };
@@ -48,6 +59,8 @@ monitoring::monitoring(thinger::iotmp::client& client) {
 
 void monitoring::collect(thinger::iotmp::output& out) {
     auto& json = out.payload();
+    json["system"] = system_info_;
+    json["agent"]  = agent_info_;
     auto& cpu = json["cpu"];
     cpu["usage"] = collect_cpu();
     cpu["cores"] = std::thread::hardware_concurrency();
