@@ -63,6 +63,9 @@ private:
     std::string get_default_device_id();
     std::string get_default_device_name();
     std::pair<std::string, std::string> prompt_device_info();
+    std::string select_or_create_product(const std::string& host,
+                                         const std::string& username,
+                                         const std::string& access_token);
     std::string detect_distribution();
     std::string detect_init_system();
 
@@ -78,12 +81,14 @@ private:
         const std::string& username,
         const std::string& device_id,
         const std::string& device_name,
-        const std::string& access_token);
+        const std::string& access_token,
+        const std::string& product = "");
 
     config::DeviceCredentials auto_provision_with_conflict_resolution(
         const std::string& token,
         const std::string& device_id,
-        const std::string& device_name);
+        const std::string& device_name,
+        const std::string& product = "");
 
     using ProvisionFn = std::function<auth::auth_manager::ProvisionResult(const std::string& device_id, const std::string& device_name)>;
     using DeleteFn = std::function<bool(const std::string& device_id)>;

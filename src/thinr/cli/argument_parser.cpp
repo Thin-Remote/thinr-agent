@@ -75,6 +75,7 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
                 ("help,h", "show help for install command")
                 ("token", po::value<std::string>(&result.install_options.token), "auto-provision token (skips interactive auth)")
                 ("device", po::value<std::string>(&result.install_options.device_id), "custom device identifier (default: hostname)")
+                ("product", po::value<std::string>(&result.install_options.product), "product to associate (default: auto-detect or create 'thinremote')")
                 ("host", po::value<std::string>(&result.install_options.host)->default_value("backend.thinger.io"), "Thinger.io server host")
                 ("overwrite", po::bool_switch(&result.install_options.overwrite), "auto-overwrite existing device (no conflict prompt)")
                 ("no-start", po::bool_switch(&result.install_options.no_start), "install but don't start service immediately")
@@ -143,6 +144,7 @@ void argument_parser::show_install_help() const {
     std::cout << "Options:\n";
     std::cout << "  --token TOKEN    Auto-provision token (skips interactive auth)\n";
     std::cout << "  --device ID      Custom device identifier (default: hostname)\n";
+    std::cout << "  --product ID     Product to associate (default: auto-detect or create 'thinremote')\n";
     std::cout << "  --host HOST      Thinger.io server (default: backend.thinger.io)\n";
     std::cout << "  --overwrite      Auto-overwrite existing device\n";
     std::cout << "  --no-start       Install but don't start service\n";
@@ -152,6 +154,7 @@ void argument_parser::show_install_help() const {
     std::cout << "  thinr-agent install                           # Interactive fast install\n";
     std::cout << "  thinr-agent install --token abc123            # Auto-provision with token\n";
     std::cout << "  thinr-agent install --token abc123 --device server-01 --overwrite\n";
+    std::cout << "  thinr-agent install --token abc123 --product my-product\n";
     std::cout << "  thinr-agent install --token abc123 --no-verify-ssl  # Self-signed certificate\n";
 }
 

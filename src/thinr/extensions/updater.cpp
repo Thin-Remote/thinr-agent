@@ -138,9 +138,16 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
     std::string install_path = get_current_binary_path();
     spdlog::info("Replacing binary at: {}", install_path);
 
+    // Remove running binary first (Linux allows deleting a busy executable,
+    // the process keeps running via its open file descriptor)
     std::error_code ec;
-    std::filesystem::copy_file(temp_path, install_path,
-        std::filesystem::copy_options::overwrite_existing, ec);
+    std::filesystem::remove(install_path, ec);
+    if (ec) {
+        spdlog::error("Failed to remove current binary: {}", ec.message());
+    }
+
+    ec.clear();
+    std::filesystem::copy_file(temp_path, install_path, ec);
 
     // Clean up temp file
     std::filesystem::remove(temp_path);

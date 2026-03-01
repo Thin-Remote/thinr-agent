@@ -142,15 +142,27 @@ int command_handler::handle_install(const InstallOptions& options) {
 
 bool command_handler::install_with_token(const InstallOptions& options) {
     std::string final_device_id = determine_device_id(options.device_id);
-    
+
     std::cout << utils::Console::cyan("Target server: ") << options.host << "\n\n";
-    
+
     try {
+        // Resolve product: use provided, auto-detect, or create default
+        std::string product_id;
+        try {
+            auto jwt_payload = auth_manager_.decode_jwt_payload(options.token);
+            std::string username = jwt_payload.value("usr", "");
+            if (!username.empty()) {
+                product_id = resolve_product(options.host, username, options.token, options.product);
+            }
+        } catch (const std::exception& e) {
+            spdlog::debug("Could not resolve product: {}", e.what());
+        }
+
         std::cout << utils::Console::loading("Auto-provisioning device with token...") << "\n";
 
         std::string device_name = determine_device_name(final_device_id);
 
-        auto result = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name);
+        auto result = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name, product_id);
 
         if (result.success) {
             result.credentials.host = options.host;
@@ -222,8 +234,11 @@ bool command_handler::install_interactive(const InstallOptions& options) {
         return false;
     }
 
+    // Resolve product
+    std::string product_id = resolve_product(options.host, username, auth_result.access_token, options.product);
+
     // Provision device with access token
-    auto result = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token);
+    auto result = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token, product_id);
 
     if (result.success) {
         std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
@@ -233,7 +248,7 @@ bool command_handler::install_interactive(const InstallOptions& options) {
     if (result.status_code == 409 && options.overwrite) {
         std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
         auth_manager_.delete_device(options.host, username, final_device_id, auth_result.access_token);
-        auto retry = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token);
+        auto retry = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token, product_id);
         if (retry.success) {
             std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
             return save_and_install_service(retry.credentials, options.no_start);
@@ -316,6 +331,54 @@ std::string command_handler::determine_device_name(const std::string& fallback) 
 
     std::transform(name.begin(), name.end(), name.begin(), ::tolower);
     return name;
+}
+
+std::string command_handler::resolve_product(const std::string& host, const std::string& username,
+                                             const std::string& access_token, const std::string& provided_product) {
+    // If a product was explicitly provided, use it directly
+    if (!provided_product.empty()) {
+        spdlog::debug("Using provided product: {}", provided_product);
+        return provided_product;
+    }
+
+    // Try to find an existing ThinRemote product or create one
+    auto list_result = auth_manager_.list_products(host, username, access_token);
+
+    if (!list_result.success) {
+        spdlog::debug("Could not list products (HTTP {}), skipping product association", list_result.status_code);
+        return "";
+    }
+
+    // Look for ThinRemote-type products
+    if (list_result.products.is_array()) {
+        for (const auto& p : list_result.products) {
+            std::string type;
+            if (p.contains("config") && p["config"].contains("type")) {
+                type = p["config"]["type"].get<std::string>();
+            }
+            if (type == "thinremote") {
+                std::string id = p.value("product", "");
+                if (!id.empty()) {
+                    std::cout << utils::Console::success("Using product: ") << p.value("name", id) << "\n";
+                    return id;
+                }
+            }
+        }
+    }
+
+    // No ThinRemote product found — create the default one
+    std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
+
+    auto product_data = auth::auth_manager::build_default_product("thinremote", "ThinRemote");
+    auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+
+    if (create_result.success) {
+        std::cout << utils::Console::success("Product 'ThinRemote' created") << "\n";
+        return "thinremote";
+    }
+
+    spdlog::debug("Failed to create default product: {} {}", create_result.status_code, create_result.error_detail);
+    return "";
 }
 
 int command_handler::handle_uninstall() {

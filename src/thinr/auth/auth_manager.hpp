@@ -57,16 +57,17 @@ public:
         config::DeviceCredentials credentials;
     };
 
-    // Provision device with access token
+    // Provision device with access token (optionally associated to a product)
     ProvisionResult provision_device(const std::string& host,
                                     const std::string& username,
                                     const std::string& device_id,
                                     const std::string& device_name,
-                                    const std::string& access_token);
+                                    const std::string& access_token,
+                                    const std::string& product = "");
 
     // Auto-provision with token
     ProvisionResult auto_provision(const std::string& token);
-    ProvisionResult auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name = "");
+    ProvisionResult auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name = "", const std::string& product = "");
 
     // Test connection with device credentials
     bool test_connection(const config::DeviceCredentials& credentials);
@@ -76,6 +77,31 @@ public:
                       const std::string& username,
                       const std::string& device_id,
                       const std::string& access_token);
+
+    // Product management
+    struct ProductListResult {
+        bool success = false;
+        int status_code = 0;
+        nlohmann::json products; // JSON array of products
+    };
+
+    ProductListResult list_products(const std::string& host,
+                                   const std::string& username,
+                                   const std::string& access_token);
+
+    struct ProductCreateResult {
+        bool success = false;
+        int status_code = 0;
+        std::string error_detail;
+    };
+
+    ProductCreateResult create_product(const std::string& host,
+                                      const std::string& username,
+                                      const std::string& access_token,
+                                      const nlohmann::json& product_data);
+
+    // Build default ThinRemote product JSON payload
+    static nlohmann::json build_default_product(const std::string& product_id, const std::string& product_name);
 
     // Decode JWT payload (public for use by interactive setup)
     nlohmann::json decode_jwt_payload(const std::string& jwt_token);

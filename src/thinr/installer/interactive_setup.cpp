@@ -286,7 +286,7 @@ config::DeviceCredentials interactive_setup::authenticate() {
 config::DeviceCredentials interactive_setup::password_flow_auth() {
     utils::Console::printSectionHeader("Username and password authentication", "🔐");
 
-    std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
+    std::string host = read_input("ThinRemote Host (e.g: acme.thinr.io):");
     std::string username = read_input("Username: ");
     std::string password = read_password("Password: ");
 
@@ -303,7 +303,10 @@ config::DeviceCredentials interactive_setup::password_flow_auth() {
 
     auto [device_id, device_name] = prompt_device_info();
 
-    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, result.access_token);
+    // Product selection step
+    std::string product_id = select_or_create_product(host, username, result.access_token);
+
+    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, result.access_token, product_id);
     std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
 
     return credentials;
@@ -327,7 +330,20 @@ config::DeviceCredentials interactive_setup::auto_provision_auth() {
 
     auto [device_id, device_name] = prompt_device_info();
 
-    auto credentials = auto_provision_with_conflict_resolution(token, device_id, device_name);
+    // Try product selection if we can extract host/user from the token
+    std::string product_id;
+    try {
+        nlohmann::json jwt_payload = auth_manager_.decode_jwt_payload(token);
+        std::string host = jwt_payload.value("svr", "");
+        std::string username = jwt_payload.value("usr", "");
+        if (!host.empty() && !username.empty()) {
+            product_id = select_or_create_product(host, username, token);
+        }
+    } catch (const std::exception& e) {
+        spdlog::debug("Could not attempt product selection for auto-provision: {}", e.what());
+    }
+
+    auto credentials = auto_provision_with_conflict_resolution(token, device_id, device_name, product_id);
     std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
 
     return credentials;
@@ -336,7 +352,7 @@ config::DeviceCredentials interactive_setup::auto_provision_auth() {
 config::DeviceCredentials interactive_setup::device_flow_auth() {
     utils::Console::printSectionHeader("Browser authentication", "🌐");
 
-    std::string host = read_input("ThinRemote Host (e.g: thin.company.com): ");
+    std::string host = read_input("ThinRemote Host (e.g: acme.thinr.io):");
 
     std::cout << utils::Console::loading("Initiating device authorization flow...") << "\n";
 
@@ -393,7 +409,10 @@ config::DeviceCredentials interactive_setup::device_flow_auth() {
         throw std::runtime_error("Failed to extract username from access token: " + std::string(e.what()));
     }
 
-    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, poll_result.access_token);
+    // Product selection step
+    std::string product_id = select_or_create_product(host, username, poll_result.access_token);
+
+    auto credentials = provision_with_conflict_resolution(host, username, device_id, device_name, poll_result.access_token, product_id);
     std::cout << utils::Console::success("Device provisioned: ") << credentials.device_id << "\n";
 
     return credentials;
@@ -610,6 +629,106 @@ bool interactive_setup::save_configuration_only(const config::DeviceCredentials&
     } catch (const std::exception& e) {
         std::cout << utils::Console::error("Failed to save configuration: ") << e.what() << "\n";
         return false;
+    }
+}
+
+std::string interactive_setup::select_or_create_product(const std::string& host,
+                                                        const std::string& username,
+                                                        const std::string& access_token) {
+    std::cout << "\n";
+
+    // Try to list existing products
+    auto list_result = auth_manager_.list_products(host, username, access_token);
+
+    if (!list_result.success) {
+        spdlog::debug("Could not list products (HTTP {}), skipping product selection", list_result.status_code);
+        return "";
+    }
+
+    // Parse the products array, filtering only ThinRemote-type products
+    std::vector<std::pair<std::string, std::string>> products; // id, name
+    if (list_result.products.is_array()) {
+        for (const auto& p : list_result.products) {
+            std::string id = p.value("product", "");
+            std::string name = p.value("name", id);
+            std::string type;
+            if (p.contains("config") && p["config"].contains("type")) {
+                type = p["config"]["type"].get<std::string>();
+            }
+            if (!id.empty() && type == "thinremote") {
+                products.emplace_back(id, name);
+            }
+        }
+    }
+
+    // Case 1: No ThinRemote products — auto-create default one
+    if (products.empty()) {
+        std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
+        auto product_data = auth::auth_manager::build_default_product("thinremote", "ThinRemote");
+        auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+
+        if (create_result.success) {
+            std::cout << utils::Console::success("Product 'ThinRemote' created with monitoring bucket") << "\n";
+            return "thinremote";
+        } else {
+            spdlog::debug("Failed to create default product: {} {}", create_result.status_code, create_result.error_detail);
+            std::cout << utils::Console::warning("Could not create default product, continuing without product association", false) << "\n";
+            return "";
+        }
+    }
+
+    // Case 2: Only one ThinRemote product — auto-select it
+    if (products.size() == 1) {
+        std::cout << utils::Console::success("Using product: ") << products[0].second << "\n";
+        return products[0].first;
+    }
+
+    // Case 3: Multiple ThinRemote products — let the user choose
+    utils::Console::printSectionHeader("Product Setup", "\xF0\x9F\x93\xA6");
+    std::cout << "Select a product for this device.\n";
+    std::cout << "Products define shared configuration, monitoring, and dashboards for your devices.\n\n";
+
+    std::vector<std::string> options;
+    for (const auto& [id, name] : products) {
+        options.push_back(name + " (" + id + ")");
+    }
+    options.push_back("Create new product");
+    options.push_back("Skip (no product association)");
+
+    int choice = utils::Console::getUserChoice(options, "");
+
+    if (choice >= 1 && choice <= static_cast<int>(products.size())) {
+        // Selected an existing product
+        std::string selected = products[choice - 1].first;
+        std::cout << utils::Console::success("Selected product: ") << selected << "\n";
+        return selected;
+    } else if (choice == static_cast<int>(products.size()) + 1) {
+        // Create new product
+        std::string product_id = read_input("Product ID (e.g: my-product):");
+        if (product_id.empty()) {
+            std::cout << "Skipping product creation.\n\n";
+            return "";
+        }
+        std::string product_name = read_input("Product Name:");
+        if (product_name.empty()) product_name = product_id;
+
+        std::cout << "\n" << utils::Console::loading("Creating product...") << "\n";
+        auto product_data = auth::auth_manager::build_default_product(product_id, product_name);
+        auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+
+        if (create_result.success) {
+            std::cout << utils::Console::success("Product created with monitoring bucket") << "\n\n";
+            return product_id;
+        } else {
+            spdlog::debug("Failed to create product: {} {}", create_result.status_code, create_result.error_detail);
+            std::cout << utils::Console::error("Failed to create product") << "\n";
+            std::cout << "Continuing without product association.\n\n";
+            return "";
+        }
+    } else {
+        // Skip
+        std::cout << "\n";
+        return "";
     }
 }
 
@@ -887,12 +1006,13 @@ config::DeviceCredentials interactive_setup::provision_with_conflict_resolution(
     const std::string& username,
     const std::string& initial_device_id,
     const std::string& device_name,
-    const std::string& access_token) {
+    const std::string& access_token,
+    const std::string& product) {
 
     return provision_with_conflict_loop(
         initial_device_id, device_name,
         [&](const std::string& did, const std::string& dname) {
-            return auth_manager_.provision_device(host, username, did, dname, access_token);
+            return auth_manager_.provision_device(host, username, did, dname, access_token, product);
         },
         [&](const std::string& did) {
             return auth_manager_.delete_device(host, username, did, access_token);
@@ -903,12 +1023,13 @@ config::DeviceCredentials interactive_setup::provision_with_conflict_resolution(
 config::DeviceCredentials interactive_setup::auto_provision_with_conflict_resolution(
     const std::string& token,
     const std::string& initial_device_id,
-    const std::string& device_name) {
+    const std::string& device_name,
+    const std::string& product) {
 
     return provision_with_conflict_loop(
         initial_device_id, device_name,
         [&](const std::string& did, const std::string& dname) {
-            return auth_manager_.auto_provision_with_device_id(token, did, dname);
+            return auth_manager_.auto_provision_with_device_id(token, did, dname, product);
         },
         [&](const std::string& did) {
             nlohmann::json payload = auth_manager_.decode_jwt_payload(token);

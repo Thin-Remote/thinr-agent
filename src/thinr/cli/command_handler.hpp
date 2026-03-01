@@ -38,6 +38,8 @@ private:
     bool save_and_install_service(const config::DeviceCredentials& credentials, bool no_start);
     std::string determine_device_id(const std::string& provided_device_id);
     std::string determine_device_name(const std::string& fallback);
+    std::string resolve_product(const std::string& host, const std::string& username,
+                                const std::string& access_token, const std::string& provided_product);
 
     // System-wide detection
     bool check_system_installation() const;

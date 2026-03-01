@@ -12,6 +12,7 @@ namespace thinr::cli {
 struct InstallOptions {
     std::string token;
     std::string device_id;
+    std::string product;
     std::string host = "backend.thinger.io";
     bool overwrite = false;
     bool no_start = false;

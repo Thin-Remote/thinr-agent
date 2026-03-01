@@ -94,7 +94,8 @@ auth_manager::ProvisionResult auth_manager::provision_device(const std::string& 
                                                             const std::string& username,
                                                             const std::string& device_id,
                                                             const std::string& device_name,
-                                                            const std::string& access_token) {
+                                                            const std::string& access_token,
+                                                            const std::string& product) {
     std::string base_url = ensure_https(host);
     std::string provision_url = base_url + "/v1/users/" + username + "/devices";
 
@@ -109,6 +110,11 @@ auth_manager::ProvisionResult auth_manager::provision_device(const std::string& 
         {"name", device_name.empty() ? device_id : device_name},
         {"description", utils::SystemInfo::get_os_description()}
     };
+
+    // Associate with product if specified
+    if (!product.empty()) {
+        payload["product"] = product;
+    }
 
     spdlog::debug("Provisioning device: {} for user: {}", device_id, username);
 
@@ -175,7 +181,7 @@ auth_manager::ProvisionResult auth_manager::auto_provision(const std::string& to
     return provision_device(host, username, device_id, device_name, token);
 }
 
-auth_manager::ProvisionResult auth_manager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name) {
+auth_manager::ProvisionResult auth_manager::auto_provision_with_device_id(const std::string& token, const std::string& device_id, const std::string& device_name, const std::string& product) {
     spdlog::debug("Attempting auto-provision with JWT token and custom device ID");
 
     nlohmann::json payload = decode_jwt_payload(token);
@@ -189,7 +195,7 @@ auth_manager::ProvisionResult auth_manager::auto_provision_with_device_id(const 
 
     spdlog::debug("Auto-provisioning device: {} for user: {} on host: {}", device_id, username, host);
 
-    return provision_device(host, username, device_id, device_name, token);
+    return provision_device(host, username, device_id, device_name, token, product);
 }
 
 bool auth_manager::test_connection(const config::DeviceCredentials& credentials) {
@@ -498,6 +504,103 @@ auth_manager::HttpResponse auth_manager::make_http_request_form_with_fallback(co
         }
         throw;
     }
+}
+
+auth_manager::ProductListResult auth_manager::list_products(const std::string& host,
+                                                           const std::string& username,
+                                                           const std::string& access_token) {
+    std::string base_url = ensure_https(host);
+    std::string products_url = base_url + "/v1/users/" + username + "/products";
+
+    spdlog::debug("Listing products for user: {}", username);
+
+    try {
+        HttpResponse response = make_http_request_with_fallback(products_url, "GET", {},
+                                                                "Bearer " + access_token);
+
+        if (!response.success || response.status_code != 200) {
+            spdlog::debug("Failed to list products: {} {}", response.status_code, response.body);
+            return {false, response.status_code, {}};
+        }
+
+        auto json_response = parse_response(response, "List products");
+        return {true, response.status_code, json_response};
+    } catch (const std::exception& e) {
+        spdlog::debug("Exception listing products: {}", e.what());
+        return {false, 0, {}};
+    }
+}
+
+auth_manager::ProductCreateResult auth_manager::create_product(const std::string& host,
+                                                               const std::string& username,
+                                                               const std::string& access_token,
+                                                               const nlohmann::json& product_data) {
+    std::string base_url = ensure_https(host);
+    std::string products_url = base_url + "/v1/users/" + username + "/products";
+
+    spdlog::debug("Creating product for user: {}", username);
+
+    try {
+        HttpResponse response = make_http_request_with_fallback(products_url, "POST", product_data,
+                                                                "Bearer " + access_token);
+
+        if (!response.success || (response.status_code != 200 && response.status_code != 201)) {
+            spdlog::debug("Failed to create product: {} {}", response.status_code, response.body);
+            return {false, response.status_code, response.body};
+        }
+
+        spdlog::debug("Product created successfully");
+        return {true, response.status_code, {}};
+    } catch (const std::exception& e) {
+        spdlog::debug("Exception creating product: {}", e.what());
+        return {false, 0, e.what()};
+    }
+}
+
+nlohmann::json auth_manager::build_default_product(const std::string& product_id, const std::string& product_name) {
+    return {
+        {"product", product_id},
+        {"name", product_name},
+        {"description", "ThinRemote Linux monitoring agent"},
+        {"enabled", true},
+        {"config", {
+            {"type", "thinremote"},
+            {"icons", {{
+                {"conditions", nlohmann::json::array()},
+                {"icon", {
+                    {"type", "fa"},
+                    {"source", "fab fa-linux"},
+                    {"color", "#000000"},
+                    {"background", "#ffffff"}
+                }}
+            }}}
+        }},
+        {"profile", {
+            {"buckets", {
+                {"monitoring", {
+                    {"name", "Monitoring Data"},
+                    {"description", "ThinRemote device metrics"},
+                    {"enabled", true},
+                    {"backend", "mongodb"},
+                    {"data", {
+                        {"source", "resource"},
+                        {"resource", "monitoring"},
+                        {"update", "interval"},
+                        {"interval", 60},
+                        {"magnitude", "second"},
+                        {"payload", "{{payload}}"},
+                        {"payload_function", ""},
+                        {"payload_type", "source_payload"}
+                    }},
+                    {"retention", {
+                        {"period", 3},
+                        {"unit", "months"}
+                    }},
+                    {"tags", nlohmann::json::array()}
+                }}
+            }}
+        }}
+    };
 }
 
 auth_manager::DeviceFlowResult auth_manager::start_device_flow(const std::string& host, const std::string& client_id) {
