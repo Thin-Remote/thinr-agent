@@ -21,7 +21,8 @@ protected:
     bool stop_service_impl() override;
     ServiceStatus check_service_status_impl(bool system_wide) override;
     std::string generate_service_file(bool system_wide) override;
-    
+    bool can_install_user_service() override;
+
     std::string get_init_system_name() override { return "systemd"; }
     
 private:

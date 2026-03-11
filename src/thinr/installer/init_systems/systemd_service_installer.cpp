@@ -197,6 +197,19 @@ std::string systemd_service_installer::generate_service_file(bool system_wide) {
     return service_content.str();
 }
 
+bool systemd_service_installer::can_install_user_service() {
+    // Check if the systemd user bus is actually reachable.
+    // On headless/embedded devices (e.g. Arduino, Raspberry Pi via SSH/ADB)
+    // $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR may not be set,
+    // making all "systemctl --user" commands fail.
+    int result = std::system("systemctl --user status >/dev/null 2>&1");
+    if (result != 0) {
+        spdlog::debug("systemd user bus not available (systemctl --user returned {})", result);
+        return false;
+    }
+    return true;
+}
+
 bool systemd_service_installer::check_lingering_enabled(const std::string& username) const {
     // Check if lingering is enabled for the user
     std::string check_cmd = "loginctl show-user " + username + " --property=Linger 2>/dev/null | grep -q 'Linger=yes'";

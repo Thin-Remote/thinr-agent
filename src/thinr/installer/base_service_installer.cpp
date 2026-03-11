@@ -143,10 +143,13 @@ bool base_service_installer::install_service(InstallMode mode) {
     
     // Check if this init system supports user services
     if (!system_wide && !can_install_user_service()) {
-        spdlog::error("{} does not support user services, switching to system mode", get_init_system_name());
+        spdlog::warn("{} user service bus not available, switching to system mode", get_init_system_name());
         system_wide = true;
         if (!can_install_system_service()) {
             spdlog::error("Cannot install system service without root privileges");
+            std::cout << utils::Console::error("User service bus not available and not running as root") << "\n";
+            std::cout << utils::Console::info("Install as root using:") << "\n";
+            std::cout << utils::Console::info("  curl -fsSL https://get.thinremote.io/install.sh | sudo sh") << "\n";
             return false;
         }
     }
