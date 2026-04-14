@@ -218,34 +218,24 @@ bool updater::download_binary(const std::string& url, const std::string& dest_pa
               .verify_ssl(true)
               .user_agent("ThinRemote/" AGENT_VERSION);
 
-        auto res = client.get(url);
+        auto res = client.request(url).download(dest_path);
 
-        if (res.has_error()) {
-            spdlog::error("Download error: {}", res.error());
+        if (res.has_network_error()) {
+            spdlog::error("Download error: {}", res.error);
             return false;
         }
 
-        if (res.status() != 200) {
-            spdlog::error("Download failed with HTTP {}", res.status());
+        if (res.status_code != 200) {
+            spdlog::error("Download failed with HTTP {}", res.status_code);
             return false;
         }
 
-        const auto& body = res.body();
-        if (body.empty()) {
+        if (res.bytes_transferred == 0) {
             spdlog::error("Downloaded empty binary");
             return false;
         }
 
-        std::ofstream file(dest_path, std::ios::binary);
-        if (!file) {
-            spdlog::error("Failed to open temp file for writing: {}", dest_path);
-            return false;
-        }
-
-        file.write(body.data(), static_cast<std::streamsize>(body.size()));
-        file.close();
-
-        spdlog::info("Downloaded {} bytes to {}", body.size(), dest_path);
+        spdlog::info("Streamed {} bytes to {}", res.bytes_transferred, dest_path);
         return true;
 
     } catch (const std::exception& e) {
