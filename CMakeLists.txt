@@ -126,7 +126,7 @@ FetchContent_MakeAvailable(json)
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
-        GIT_TAG        develop
+        GIT_TAG        main
 )
 FetchContent_MakeAvailable(thinger_iotmp)
 
