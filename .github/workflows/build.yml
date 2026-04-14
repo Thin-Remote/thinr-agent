@@ -297,7 +297,15 @@ jobs:
       env:
         CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
       run: |
+        paths=(
+          "/${{ steps.channel.outputs.install_script }}"
+          "/binaries/${{ steps.channel.outputs.channel }}/*"
+          "/${{ steps.channel.outputs.channel }}.json"
+        )
+        if [[ "${{ steps.channel.outputs.is_release }}" == "true" ]]; then
+          paths+=("/binaries/latest/*" "/latest.json")
+        fi
         aws cloudfront create-invalidation \
           --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} \
-          --paths "/${{ steps.channel.outputs.install_script }}" "/binaries/${{ steps.channel.outputs.channel }}/*" "/${{ steps.channel.outputs.channel }}.json" "/latest.json"
+          --paths "${paths[@]}"
 
