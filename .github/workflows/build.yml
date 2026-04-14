@@ -35,7 +35,7 @@ jobs:
         fi
 
   build_linux:
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     needs: build_version
     strategy:
       fail-fast: false # continues with matrix even if an element fails
@@ -89,7 +89,7 @@ jobs:
   # TODO: Install and run
 
   build_macos:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-latest
     needs: build_version
     strategy:
       matrix:
