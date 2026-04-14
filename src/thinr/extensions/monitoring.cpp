@@ -1,5 +1,6 @@
 #include "monitoring.hpp"
 #include "../utils/system_info.hpp"
+#include <thinger/iotmp/util/shell.hpp>
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <cstdlib>
@@ -45,6 +46,7 @@ monitoring::monitoring(thinger::iotmp::client& client) {
         system_info_["architecture"] = info.machine;
         system_info_["hostname"]     = info.nodename;
         system_info_["kernel"]       = info.release;
+        system_info_["shell"]        = thinger::iotmp::preferred_shell();
     }
     agent_info_["version"] = AGENT_VERSION;
 
