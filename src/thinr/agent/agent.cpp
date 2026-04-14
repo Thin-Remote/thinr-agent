@@ -123,13 +123,9 @@ void agent::init_proxy(const nlohmann::json& config) {
 
 void agent::init_filesystem(const nlohmann::json &config) {
     spdlog::info("Initializing filesystem extension");
-    // Use home directory as default base path instead of cwd
-    const char* home = std::getenv("HOME");
-    if(home) {
-        filesystem_.emplace(client_, std::filesystem::path(home));
-    } else {
-        filesystem_.emplace(client_);
-    }
+    // No base path: expose the real device filesystem. Access control is
+    // delegated to the OS (process user + file permissions).
+    filesystem_.emplace(client_, std::filesystem::path(""));
 }
 
 void agent::init_monitoring() {
@@ -181,21 +177,6 @@ void agent::apply_config(const nlohmann::json& config) {
         }
     }
 
-    // Filesystem: configurable base path
-    if (config.contains("filesystem")) {
-        const auto& fs = config["filesystem"];
-        if (fs.contains("base_path") && fs["base_path"].is_string()) {
-            auto base_path = fs["base_path"].get<std::string>();
-            if (!base_path.empty() && base_path[0] == '/' &&
-                base_path.find("..") == std::string::npos &&
-                std::filesystem::is_directory(base_path)) {
-                spdlog::info("Reconfiguring filesystem base_path: {}", base_path);
-                filesystem_->set_base_path(base_path);
-            } else {
-                spdlog::warn("Ignoring invalid filesystem base_path: {}", base_path);
-            }
-        }
-    }
 }
 
 } // namespace thinr::agent
