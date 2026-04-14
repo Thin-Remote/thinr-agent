@@ -101,7 +101,10 @@ jobs:
       with:
         fetch-depth: 0
         ref: ${{ needs.build_version.outputs.version }}
-    
+
+    - name: Install dependencies
+      run: brew install boost
+
     - name: Configure CMake
       run: |
         cmake -B build-${{ matrix.arch }} \
