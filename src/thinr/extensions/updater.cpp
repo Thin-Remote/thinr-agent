@@ -175,9 +175,13 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
     out["latest"] = latest.version;
     out["message"] = "Update applied. Restarting...";
 
-    // 9. Exit so the init system restarts with the new binary
-    spdlog::info("Exiting for restart with updated binary");
-    std::exit(0);
+    // 9. Exit AFTER the response is sent so the caller actually sees the
+    // ack instead of a connection-reset / timeout. The init system will
+    // restart the agent with the new binary.
+    out.after_response([] {
+        spdlog::info("Exiting for restart with updated binary");
+        std::exit(0);
+    });
 }
 
 updater::version_info updater::fetch_latest_version(const std::string& channel) {
