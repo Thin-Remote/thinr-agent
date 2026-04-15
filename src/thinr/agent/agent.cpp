@@ -32,6 +32,7 @@ agent::agent(const config::DeviceCredentials& credentials)
     init_scripts();
     init_shell(empty_config);
     init_cmd(empty_config);
+    init_cmd_stream(empty_config);
     init_proxy(empty_config);
     init_filesystem(empty_config);
 
@@ -62,6 +63,7 @@ void agent::stop() {
     updater_.reset();
     shell_.reset();
     cmd_.reset();
+    cmd_stream_.reset();
     proxy_.reset();
     filesystem_.reset();
 
@@ -108,9 +110,14 @@ void agent::init_shell(const nlohmann::json& config) {
 void agent::init_cmd(const nlohmann::json& config) {
     spdlog::info("Initializing cmd extension");
     cmd_.emplace(client_);
-    
+
     // Apply any configuration from config JSON if needed
     // For example: cmd_->set_timeout(config.value("timeout", 30));
+}
+
+void agent::init_cmd_stream(const nlohmann::json& config) {
+    spdlog::info("Initializing cmd_stream extension");
+    cmd_stream_.emplace(client_);
 }
 
 void agent::init_proxy(const nlohmann::json& config) {

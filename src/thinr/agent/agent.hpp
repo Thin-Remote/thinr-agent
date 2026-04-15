@@ -7,6 +7,7 @@
 #include <thinger/iotmp/client.hpp>
 #include <nlohmann/json.hpp>
 #include "thinger/iotmp/extensions/cmd/cmd.hpp"
+#include "thinger/iotmp/extensions/cmd/cmd_stream.hpp"
 #include "thinger/iotmp/extensions/proxy/proxy.hpp"
 #include "thinger/iotmp/extensions/terminal/terminal.hpp"
 #include "thinger/iotmp/extensions/fs/filesystem.hpp"
@@ -45,6 +46,7 @@ private:
     // Extensions
     std::optional<thinger::iotmp::terminal> shell_;
     std::optional<thinger::iotmp::cmd> cmd_;
+    std::optional<thinger::iotmp::cmd_stream> cmd_stream_;
     std::optional<thinger::iotmp::proxy> proxy_;
     std::optional<thinger::iotmp::filesystem> filesystem_;
     std::optional<thinr::extensions::monitoring> monitoring_;
@@ -55,6 +57,7 @@ private:
     void init_agent_info();
     void init_shell(const nlohmann::json& config);
     void init_cmd(const nlohmann::json& config);
+    void init_cmd_stream(const nlohmann::json& config);
     void init_proxy(const nlohmann::json& config);
     void init_filesystem(const nlohmann::json& config);
     void init_monitoring();
