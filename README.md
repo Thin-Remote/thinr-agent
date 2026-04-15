@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/github/license/Thin-Remote/thinr-agent" alt="License">
 </div>
 
-ThinRemote Agent is a lightweight, secure system monitoring and remote access agent that seamlessly connects Linux and macOS devices to the [Thinger.io](https://thinger.io) IoT platform. It provides zero-dependency deployment across a wide range of systems and architectures.
+ThinRemote Agent is a lightweight, secure system monitoring and remote access agent that seamlessly connects Linux and macOS devices to the [ThinRemote](https://thinremote.io) IoT platform. It provides zero-dependency deployment across a wide range of systems and architectures.
 
 ## Quick Start
 
@@ -56,7 +56,7 @@ curl -fsSL https://get.thinremote.io/install.sh | sh -s -- install --host thin.c
 - **Multi-Platform**: Native support for Linux (all distributions) and macOS
 - **Zero Dependencies**: Single binary, no external libraries required
 - **Auto-Installation**: Self-installing as system service (systemd, launchd, OpenRC, SysV, Upstart)
-- **Secure Communication**: TLS/SSL encrypted connection to Thinger.io platform
+- **Secure Communication**: TLS/SSL encrypted connection to ThinRemote platform
 - **Low Resource Usage**: Minimal CPU and memory footprint
 - **Device Management**: Automatic device provisioning and authentication
 - **Cross-Architecture**: 16 target architectures including x86_64, ARM64, ARMv7, ARMv6, ARMv5, MIPS, RISC-V, and PowerPC
