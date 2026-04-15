@@ -18,7 +18,7 @@
 namespace thinr::extensions {
 
 updater::updater(thinger::iotmp::client& client) {
-    client["update"] = [this](thinger::iotmp::input& in, thinger::iotmp::output& out) {
+    client["update"] = [](thinger::iotmp::input& in, thinger::iotmp::output& out) {
         if (in.describe()) {
             in["action"] = "check";
             in["channel"] = "latest";
@@ -29,20 +29,39 @@ updater::updater(thinger::iotmp::client& client) {
             out["message"] = "";
             return;
         }
-        perform_update(in, out);
+
+        auto channel = thinger::iotmp::get_value(in.payload(), "channel", std::string("latest"));
+        auto action_str = thinger::iotmp::get_value(in.payload(), "action", std::string("check"));
+        action act = (action_str == "apply") ? action::apply : action::check;
+
+        result r = run(act, channel);
+
+        out["status"] = r.status;
+        out["current"] = r.current;
+        out["latest"] = r.latest;
+        out["arch"] = r.arch;
+        out["message"] = r.message;
+
+        // Exit AFTER the response is sent so the caller sees the ack instead
+        // of a connection-reset / timeout. The init system will restart the
+        // agent with the new binary.
+        if (r.status == "updated") {
+            out.after_response([] {
+                spdlog::info("Exiting for restart with updated binary");
+                std::exit(0);
+            });
+        }
     };
 
     spdlog::info("Updater extension initialized (binary suffix: {})", AGENT_BINARY_SUFFIX);
 }
 
-void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& out) {
-    std::string current_version = AGENT_VERSION;
-    out["arch"] = AGENT_BINARY_SUFFIX;
+updater::result updater::run(action act, const std::string& channel) {
+    result r;
+    r.current = AGENT_VERSION;
+    r.arch = AGENT_BINARY_SUFFIX;
 
-    // Extract channel from input (default: "latest")
-    auto channel = thinger::iotmp::get_value(in.payload(), "channel", std::string("latest"));
-
-    spdlog::info("Update check requested (current version: {}, channel: {})", current_version, channel);
+    spdlog::info("Update check requested (current version: {}, channel: {})", r.current, channel);
 
     // 1. Fetch latest version info from CDN
     version_info latest;
@@ -50,39 +69,32 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
         latest = fetch_latest_version(channel);
     } catch (const std::exception& e) {
         spdlog::error("Failed to fetch latest version: {}", e.what());
-        out["status"] = "error";
-        out["current"] = current_version;
-        out["message"] = std::string("Failed to check for updates: ") + e.what();
-        return;
+        r.status = "error";
+        r.message = std::string("Failed to check for updates: ") + e.what();
+        return r;
     }
 
     if (latest.version.empty()) {
-        out["status"] = "error";
-        out["current"] = current_version;
-        out["message"] = "Empty version response from CDN";
-        return;
+        r.status = "error";
+        r.message = "Empty version response from CDN";
+        return r;
     }
 
+    r.latest = latest.version;
     spdlog::info("Latest version available: {}", latest.version);
 
     // 2. Compare versions
-    if (current_version == latest.version) {
+    if (r.current == latest.version) {
         spdlog::info("Agent is already up to date");
-        out["status"] = "up_to_date";
-        out["current"] = current_version;
-        out["latest"] = latest.version;
-        return;
+        r.status = "up_to_date";
+        return r;
     }
 
     // 3. Check action: "check" (default) only reports, "apply" performs the update
-    auto action = thinger::iotmp::get_value(in.payload(), "action", std::string("check"));
-
-    if (action != "apply") {
-        spdlog::info("Update available but action is '{}', not applying", action);
-        out["status"] = "update_available";
-        out["current"] = current_version;
-        out["latest"] = latest.version;
-        return;
+    if (act != action::apply) {
+        spdlog::info("Update available but action is 'check', not applying");
+        r.status = "update_available";
+        return r;
     }
 
     // 4. Build download URL and download
@@ -93,25 +105,21 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
     spdlog::info("Downloading update from: {}", download_url);
 
     if (!download_binary(download_url, temp_path)) {
-        out["status"] = "error";
-        out["current"] = current_version;
-        out["latest"] = latest.version;
-        out["message"] = "Failed to download update binary";
-        return;
+        r.status = "error";
+        r.message = "Failed to download update binary";
+        return r;
     }
 
-    // 4. Verify downloaded binary
+    // 5. Verify downloaded binary
     if (!latest.checksum.empty()) {
         // Checksum available: verify integrity via SHA256
         std::string actual_hash = "sha256:" + compute_sha256(temp_path);
         if (actual_hash != latest.checksum) {
             spdlog::error("Checksum mismatch: expected={}, actual={}", latest.checksum, actual_hash);
             std::filesystem::remove(temp_path);
-            out["status"] = "error";
-            out["current"] = current_version;
-            out["latest"] = latest.version;
-            out["message"] = "Checksum verification failed";
-            return;
+            r.status = "error";
+            r.message = "Checksum verification failed";
+            return r;
         }
         spdlog::info("Checksum verified: {}", latest.checksum);
     } else {
@@ -125,11 +133,9 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
         if (downloaded_version.empty()) {
             spdlog::error("Downloaded binary verification failed (no checksum available)");
             std::filesystem::remove(temp_path);
-            out["status"] = "error";
-            out["current"] = current_version;
-            out["latest"] = latest.version;
-            out["message"] = "Downloaded binary failed verification";
-            return;
+            r.status = "error";
+            r.message = "Downloaded binary failed verification";
+            return r;
         }
         spdlog::info("Binary verified via --version: {}", downloaded_version);
     }
@@ -154,11 +160,9 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
 
     if (ec) {
         spdlog::error("Failed to replace binary: {}", ec.message());
-        out["status"] = "error";
-        out["current"] = current_version;
-        out["latest"] = latest.version;
-        out["message"] = std::string("Failed to replace binary: ") + ec.message();
-        return;
+        r.status = "error";
+        r.message = std::string("Failed to replace binary: ") + ec.message();
+        return r;
     }
 
     // 7. Ensure executable permissions on installed binary
@@ -168,20 +172,10 @@ void updater::perform_update(thinger::iotmp::input& in, thinger::iotmp::output& 
         std::filesystem::perms::others_exec | std::filesystem::perms::others_read,
         std::filesystem::perm_options::add);
 
-    // 8. Report success
-    spdlog::info("Update successful: {} -> {}", current_version, latest.version);
-    out["status"] = "updated";
-    out["current"] = current_version;
-    out["latest"] = latest.version;
-    out["message"] = "Update applied. Restarting...";
-
-    // 9. Exit AFTER the response is sent so the caller actually sees the
-    // ack instead of a connection-reset / timeout. The init system will
-    // restart the agent with the new binary.
-    out.after_response([] {
-        spdlog::info("Exiting for restart with updated binary");
-        std::exit(0);
-    });
+    spdlog::info("Update successful: {} -> {}", r.current, latest.version);
+    r.status = "updated";
+    r.message = "Update applied. Restarting...";
+    return r;
 }
 
 updater::version_info updater::fetch_latest_version(const std::string& channel) {

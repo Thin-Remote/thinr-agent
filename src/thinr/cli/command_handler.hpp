@@ -23,6 +23,7 @@ public:
     int handle_status();
     int handle_test();
     int handle_reconfigure();
+    int handle_update(const UpdateOptions& options);
     int handle_no_command(const std::string& config_path);
 
 private:

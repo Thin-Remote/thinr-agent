@@ -4,6 +4,7 @@
 #include "../utils/device_id_generator.hpp"
 #include "../installer/interactive_setup.hpp"
 #include "../installer/service_installer.hpp"
+#include "../extensions/updater.hpp"
 #include "../agent/agent.hpp"
 #include <iostream>
 #include <unistd.h>
@@ -61,6 +62,7 @@ int command_handler::execute(const ParseResult& parse_result) {
         case ParseResult::Command::INSTALL:
         case ParseResult::Command::TEST:
         case ParseResult::Command::RECONFIGURE:
+        case ParseResult::Command::UPDATE:
             needs_ssl = true;
             break;
         case ParseResult::Command::NONE:
@@ -98,7 +100,10 @@ int command_handler::execute(const ParseResult& parse_result) {
             
         case ParseResult::Command::RECONFIGURE:
             return handle_reconfigure();
-            
+
+        case ParseResult::Command::UPDATE:
+            return handle_update(parse_result.update_options);
+
         case ParseResult::Command::NONE:
             return handle_no_command(parse_result.config_path);
             
@@ -400,6 +405,42 @@ int command_handler::handle_status() {
 int command_handler::handle_test() {
     std::cout << "Testing connection...\n";
     spdlog::error("Connection test not yet implemented");
+    return 1;
+}
+
+int command_handler::handle_update(const UpdateOptions& options) {
+    using extensions::updater;
+
+    auto action = options.apply ? updater::action::apply : updater::action::check;
+    auto result = updater::run(action, options.channel);
+
+    std::cout << utils::Console::cyan("Current version: ") << result.current << "\n";
+    std::cout << utils::Console::cyan("Architecture:    ") << result.arch << "\n";
+    if (!result.latest.empty()) {
+        std::cout << utils::Console::cyan("Latest version:  ") << result.latest << "\n";
+    }
+
+    if (result.status == "up_to_date") {
+        std::cout << utils::Console::success("Agent is already up to date.") << "\n";
+        return 0;
+    }
+
+    if (result.status == "update_available") {
+        std::cout << utils::Console::warning("Update available. Re-run with --apply to install it.") << "\n";
+        return 0;
+    }
+
+    if (result.status == "updated") {
+        std::cout << utils::Console::success("Update applied. Restart the agent to use the new binary.") << "\n";
+        return 0;
+    }
+
+    // Any other status (including "error")
+    if (!result.message.empty()) {
+        std::cout << utils::Console::error(result.message) << "\n";
+    } else {
+        std::cout << utils::Console::error("Update failed.") << "\n";
+    }
     return 1;
 }
 

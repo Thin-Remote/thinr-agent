@@ -19,6 +19,11 @@ struct InstallOptions {
     bool no_verify_ssl = false;
 };
 
+struct UpdateOptions {
+    std::string channel = "latest";
+    bool apply = false;  // false = check only, true = download and install
+};
+
 struct ParseResult {
     enum class Command {
         NONE,           // No command (interactive setup or agent mode)
@@ -27,18 +32,20 @@ struct ParseResult {
         CMD_STATUS,     // Show status (renamed to avoid macro collision)
         TEST,           // Test connection
         RECONFIGURE,    // Reconfigure
+        UPDATE,         // Check/apply self-update
         HELP,           // Show help
         VERSION,        // Show version
         UNKNOWN         // Unknown command
     };
-    
+
     Command command = Command::NONE;
     std::string command_str;
     std::string config_path;
     int verbosity_level = 1;
-    
+
     // Command-specific options
     InstallOptions install_options;
+    UpdateOptions update_options;
     
     // Status
     bool success = true;
@@ -55,6 +62,7 @@ public:
 private:
     void show_general_help() const;
     void show_install_help() const;
+    void show_update_help() const;
 
     ParseResult::Command string_to_command(const std::string& cmd) const;
 
