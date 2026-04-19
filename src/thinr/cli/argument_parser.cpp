@@ -16,6 +16,15 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
         // the command line at the first non-option token (the subcommand). This
         // avoids boost::program_options treating a subcommand option's value
         // (e.g. --token abc) as an extra positional for the global parser.
+        //
+        // When a global option that takes a value is passed in its
+        // separate-value form (e.g. `--config /etc/thinr-agent/config.json`),
+        // the following token is the value, not the subcommand. Keep them
+        // together so the global parser sees a well-formed pair.
+        auto is_global_value_option = [](const std::string& a) {
+            return a == "--config" || a == "-c";
+        };
+
         std::vector<std::string> global_args;
         std::vector<std::string> sub_args;
         int verbose_count = 0;
@@ -29,17 +38,20 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
                 continue;
             }
 
-            if (!command_found && !arg.empty() && arg[0] != '-') {
+            if (!command_found) {
+                if (!arg.empty() && arg[0] == '-') {
+                    global_args.push_back(arg);
+                    if (is_global_value_option(arg) && i + 1 < argc) {
+                        global_args.emplace_back(argv[++i]);
+                    }
+                    continue;
+                }
                 result.command_str = arg;
                 command_found = true;
                 continue;
             }
 
-            if (command_found) {
-                sub_args.push_back(arg);
-            } else {
-                global_args.push_back(arg);
-            }
+            sub_args.push_back(arg);
         }
 
         // Parse global options (no subcommand tokens here, so no allow_unregistered)
