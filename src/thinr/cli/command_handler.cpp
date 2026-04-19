@@ -146,59 +146,24 @@ int command_handler::handle_install(const InstallOptions& options) {
 }
 
 bool command_handler::install_with_token(const InstallOptions& options) {
-    std::string final_device_id = determine_device_id(options.device_id);
-
-    std::cout << utils::Console::cyan("Target server: ") << options.host << "\n\n";
-
     try {
-        // Resolve product: use provided, auto-detect, or create default
-        std::string product_id;
-        try {
-            auto jwt_payload = auth_manager_.decode_jwt_payload(options.token);
-            std::string username = jwt_payload.value("usr", "");
-            if (!username.empty()) {
-                product_id = resolve_product(options.host, username, options.token, options.product);
-            }
-        } catch (const std::exception& e) {
-            spdlog::debug("Could not resolve product: {}", e.what());
-        }
-
-        std::cout << utils::Console::loading("Auto-provisioning device with token...") << "\n";
-
-        std::string device_name = determine_device_name(final_device_id);
-
-        auto result = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name, product_id);
-
-        if (result.success) {
-            result.credentials.host = options.host;
-            std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
-            return save_and_install_service(result.credentials, options.no_start);
-        }
-
-        if (result.status_code == 409 && options.overwrite) {
-            auto jwt_payload = auth_manager_.decode_jwt_payload(options.token);
-            std::string username = jwt_payload.value("usr", "");
-
-            std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
-            auth_manager_.delete_device(options.host, username, final_device_id, options.token);
-
-            auto retry = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name, product_id);
-            if (retry.success) {
-                retry.credentials.host = options.host;
-                std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
-                return save_and_install_service(retry.credentials, options.no_start);
-            }
-            std::cout << utils::Console::error("Failed to overwrite device (HTTP " + std::to_string(retry.status_code) + ")") << "\n";
+        auto jwt_payload = auth_manager_.decode_jwt_payload(options.token);
+        if (!jwt_payload.contains("svr") || !jwt_payload.contains("usr")) {
+            std::cout << utils::Console::error("Invalid token: missing 'svr' or 'usr' claim") << "\n";
             return false;
         }
 
-        if (result.status_code == 409) {
-            std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
-            std::cout << "Use --overwrite flag to replace the existing device.\n";
-        } else {
-            std::cout << utils::Console::error("Auto-provisioning failed (HTTP " + std::to_string(result.status_code) + ")") << "\n";
-        }
-        return false;
+        std::string host = jwt_payload["svr"];
+        std::string username = jwt_payload["usr"];
+
+        std::cout << utils::Console::cyan("Target server: ") << host << "\n\n";
+
+        std::string product_id = resolve_product(host, username, options.token, options.product);
+        std::string device_id = determine_device_id(options.device_id);
+        std::string device_name = determine_device_name(device_id);
+
+        return complete_provisioning(host, username, device_id, device_name,
+                                     options.token, product_id, options.overwrite, options.no_start);
 
     } catch (const std::exception& e) {
         std::cout << utils::Console::error("Auto-provisioning failed: ") << e.what() << "\n";
@@ -256,31 +221,49 @@ bool command_handler::install_interactive(const InstallOptions& options) {
         return false;
     }
 
-    // Resolve product
     std::string product_id = resolve_product(options.host, username, auth_result.access_token, options.product);
 
-    // Provision device with access token
-    auto result = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token, product_id);
+    return complete_provisioning(options.host, username, final_device_id, device_name,
+                                 auth_result.access_token, product_id,
+                                 options.overwrite, options.no_start);
+}
+
+bool command_handler::complete_provisioning(const std::string& host,
+                                            const std::string& username,
+                                            const std::string& device_id,
+                                            const std::string& device_name,
+                                            const std::string& access_token,
+                                            const std::string& product_id,
+                                            bool overwrite,
+                                            bool no_start) {
+    std::cout << utils::Console::loading("Provisioning device...") << "\n";
+
+    auto provision = [&] {
+        return auth_manager_.provision_device(host, username, device_id, device_name, access_token, product_id);
+    };
+
+    auto result = provision();
 
     if (result.success) {
         std::cout << utils::Console::success("Device provisioned successfully!") << "\n";
-        return save_and_install_service(result.credentials, options.no_start);
+        return save_and_install_service(result.credentials, no_start);
     }
 
-    if (result.status_code == 409 && options.overwrite) {
+    if (result.status_code == 409 && overwrite) {
         std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
-        auth_manager_.delete_device(options.host, username, final_device_id, auth_result.access_token);
-        auto retry = auth_manager_.provision_device(options.host, username, final_device_id, device_name, auth_result.access_token, product_id);
+        auth_manager_.delete_device(host, username, device_id, access_token);
+
+        auto retry = provision();
         if (retry.success) {
             std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
-            return save_and_install_service(retry.credentials, options.no_start);
+            return save_and_install_service(retry.credentials, no_start);
         }
-        std::cout << utils::Console::error("Failed to overwrite device") << "\n";
+        std::cout << utils::Console::error("Failed to overwrite device (HTTP " + std::to_string(retry.status_code) + ")") << "\n";
         return false;
     }
 
     if (result.status_code == 409) {
-        std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
+        std::cout << utils::Console::error("Device already exists: ") << device_id << "\n";
         std::cout << "Use --overwrite flag to replace the existing device.\n";
     } else {
         std::cout << utils::Console::error("Provisioning failed (HTTP " + std::to_string(result.status_code) + ")") << "\n";
