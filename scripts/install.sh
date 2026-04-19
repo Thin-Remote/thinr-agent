@@ -311,7 +311,12 @@ construct_binary_name() {
 }
 
 main() {
-    # Parse command line arguments
+    # Parse launcher-specific flags. The first argument that is not recognized
+    # by the launcher ends launcher parsing — everything from there on is
+    # forwarded verbatim to the agent binary. An explicit `--` may also be
+    # used as a separator. This enables unattended installs such as:
+    #   curl -fsSL https://get.thinremote.io/install.sh | sh -s -- \
+    #     install --token XYZ --host backend.thinger.io --overwrite
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help)
@@ -324,13 +329,16 @@ main() {
                     exit 1
                 fi
                 VERSION="$1"
+                shift
+                ;;
+            --)
+                shift
+                break
                 ;;
             *)
-                echo "Error: Unknown option: $1"
-                usage
+                break
                 ;;
         esac
-        shift
     done
     
     echo "ThinRemote Agent Launcher"
