@@ -175,6 +175,23 @@ bool command_handler::install_with_token(const InstallOptions& options) {
             return save_and_install_service(result.credentials, options.no_start);
         }
 
+        if (result.status_code == 409 && options.overwrite) {
+            auto jwt_payload = auth_manager_.decode_jwt_payload(options.token);
+            std::string username = jwt_payload.value("usr", "");
+
+            std::cout << utils::Console::warning("Device already exists, overwriting...") << "\n";
+            auth_manager_.delete_device(options.host, username, final_device_id, options.token);
+
+            auto retry = auth_manager_.auto_provision_with_device_id(options.token, final_device_id, device_name, product_id);
+            if (retry.success) {
+                retry.credentials.host = options.host;
+                std::cout << utils::Console::success("Device overwritten successfully!") << "\n";
+                return save_and_install_service(retry.credentials, options.no_start);
+            }
+            std::cout << utils::Console::error("Failed to overwrite device (HTTP " + std::to_string(retry.status_code) + ")") << "\n";
+            return false;
+        }
+
         if (result.status_code == 409) {
             std::cout << utils::Console::error("Device already exists: ") << final_device_id << "\n";
             std::cout << "Use --overwrite flag to replace the existing device.\n";
