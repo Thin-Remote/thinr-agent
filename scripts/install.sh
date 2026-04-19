@@ -417,8 +417,13 @@ main() {
     echo
     
     # Execute the binary
-    # Redirect stdin to /dev/tty to make it interactive even when piped
-    if [ -e /dev/tty ]; then
+    # Redirect stdin to /dev/tty to make it interactive even when piped, but
+    # only if /dev/tty can actually be opened. The file exists on every Linux
+    # system, so `-e /dev/tty` is a poor check: it returns true even when the
+    # process has no controlling terminal (systemd units, cron, remote cmd
+    # runners), and the following redirect then fails with "cannot open
+    # /dev/tty: No such device or address". Verify openability first.
+    if [ -e /dev/tty ] && ( : < /dev/tty ) 2>/dev/null; then
         "$TEMP_DIR/$BINARY_NAME" "$@" < /dev/tty
     else
         "$TEMP_DIR/$BINARY_NAME" "$@"
