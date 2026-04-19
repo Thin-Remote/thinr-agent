@@ -340,21 +340,37 @@ std::string command_handler::determine_device_name(const std::string& fallback) 
 
 std::string command_handler::resolve_product(const std::string& host, const std::string& username,
                                              const std::string& access_token, const std::string& provided_product) {
-    // If a product was explicitly provided, use it directly
-    if (!provided_product.empty()) {
-        spdlog::debug("Using provided product: {}", provided_product);
-        return provided_product;
-    }
-
-    // Try to find an existing ThinRemote product or create one
     auto list_result = auth_manager_.list_products(host, username, access_token);
 
     if (!list_result.success) {
         spdlog::debug("Could not list products (HTTP {}), skipping product association", list_result.status_code);
-        return "";
+        return provided_product;
     }
 
-    // Look for ThinRemote-type products
+    if (!provided_product.empty()) {
+        if (list_result.products.is_array()) {
+            for (const auto& p : list_result.products) {
+                if (p.value("product", "") == provided_product) {
+                    std::cout << utils::Console::success("Using product: ") << p.value("name", provided_product) << "\n";
+                    return provided_product;
+                }
+            }
+        }
+
+        std::cout << utils::Console::loading("Creating product '" + provided_product + "'...") << "\n";
+
+        auto product_data = auth::auth_manager::build_default_product(provided_product, provided_product);
+        auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+
+        if (create_result.success) {
+            std::cout << utils::Console::success("Product '" + provided_product + "' created") << "\n";
+            return provided_product;
+        }
+
+        spdlog::debug("Failed to create product '{}': {} {}", provided_product, create_result.status_code, create_result.error_detail);
+        return provided_product;
+    }
+
     if (list_result.products.is_array()) {
         for (const auto& p : list_result.products) {
             std::string type;
@@ -371,7 +387,6 @@ std::string command_handler::resolve_product(const std::string& host, const std:
         }
     }
 
-    // No ThinRemote product found — create the default one
     std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
 
     auto product_data = auth::auth_manager::build_default_product("thinremote", "ThinRemote");
