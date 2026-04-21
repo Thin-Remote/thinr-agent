@@ -247,11 +247,7 @@ auth_manager::HttpResponse auth_manager::make_http_request(const std::string& ur
                                                         const nlohmann::json& payload,
                                                         const std::string& authorization,
                                                         bool verify_ssl) {
-    HttpResponse result;
-    result.success = false;
-
     try {
-        // Create and configure HTTP client
         thinger::http::client client;
         client.timeout(std::chrono::seconds(HTTP_TIMEOUT_SECONDS))
               .verify_ssl(verify_ssl)
@@ -261,13 +257,11 @@ auth_manager::HttpResponse auth_manager::make_http_request(const std::string& ur
             spdlog::warn("SSL certificate verification disabled - connection is insecure!");
         }
 
-        // Prepare headers
         thinger::http::headers_map headers;
         if (!authorization.empty()) {
             headers["Authorization"] = authorization;
         }
 
-        // Make request
         thinger::http::client_response res;
 
         if (method == "GET") {
@@ -285,19 +279,18 @@ auth_manager::HttpResponse auth_manager::make_http_request(const std::string& ur
             throw std::runtime_error("HTTP request failed: " + res.error());
         }
 
+        HttpResponse result;
         result.status_code = res.status();
         result.body = res.body();
         result.success = true;
 
         spdlog::debug("HTTP {} {} -> {}", method, url, result.status_code);
+        return result;
 
     } catch (const std::exception& e) {
         spdlog::error("HTTP request error: {}", e.what());
-        // Re-throw the exception to let the fallback mechanism handle it
         throw;
     }
-
-    return result;
 }
 
 auth_manager::HttpResponse auth_manager::make_http_request_form(const std::string& url,
@@ -472,17 +465,14 @@ auth_manager::HttpResponse auth_manager::make_http_request_with_fallback(const s
         return make_http_request(url, method, payload, authorization, true);
     } catch (const std::exception& e) {
         if (classify_exception(e) != AuthError::ssl_error) throw;
-
         spdlog::info("SSL error: '{}'. Checking for callback...", e.what());
-        if (ssl_verification_callback_) {
-            if (ssl_verification_callback_(e.what())) {
-                spdlog::warn("User accepted insecure connection - SSL verification disabled");
-                return make_http_request(url, method, payload, authorization, false);
-            }
+        if (!ssl_verification_callback_) throw;
+        if (!ssl_verification_callback_(e.what())) {
             throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + std::string(e.what()));
         }
-        throw;
+        spdlog::warn("User accepted insecure connection - SSL verification disabled");
     }
+    return make_http_request(url, method, payload, authorization, false);
 }
 
 auth_manager::HttpResponse auth_manager::make_http_request_form_with_fallback(const std::string& url,
@@ -493,17 +483,14 @@ auth_manager::HttpResponse auth_manager::make_http_request_form_with_fallback(co
         return make_http_request_form(url, method, form_data, authorization, true);
     } catch (const std::exception& e) {
         if (classify_exception(e) != AuthError::ssl_error) throw;
-
         spdlog::info("SSL error: '{}'. Checking for callback...", e.what());
-        if (ssl_verification_callback_) {
-            if (ssl_verification_callback_(e.what())) {
-                spdlog::warn("User accepted insecure connection - SSL verification disabled");
-                return make_http_request_form(url, method, form_data, authorization, false);
-            }
+        if (!ssl_verification_callback_) throw;
+        if (!ssl_verification_callback_(e.what())) {
             throw std::runtime_error("SSL verification failed and insecure connection was not allowed: " + std::string(e.what()));
         }
-        throw;
+        spdlog::warn("User accepted insecure connection - SSL verification disabled");
     }
+    return make_http_request_form(url, method, form_data, authorization, false);
 }
 
 auth_manager::ProductListResult auth_manager::list_products(const std::string& host,
