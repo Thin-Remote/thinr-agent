@@ -21,19 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install GCC 14 and system dependencies
+      - name: Install GCC 14, Boost and system dependencies
         run: |
           sudo apt update
-          sudo apt install -y gcc-14 g++-14 libarchive-tools libarchive-dev
+          sudo apt install -y gcc-14 g++-14 libarchive-tools libarchive-dev libboost-all-dev
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
-
-      - name: Install Boost 1.86.0
-        id: install-boost
-        uses: MarkusJx/install-boost@v2.5.0
-        with:
-          boost_version: 1.86.0
-          platform_version: 24.04
-          toolset: gcc
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -44,7 +36,6 @@ jobs:
 
       - name: Build
         env:
-          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
           CC: gcc-14
           CXX: g++-14
         run: |
