@@ -7,3 +7,20 @@ cmake-*
 .claude
 *_bk
 /build/
+
+# macOS
+.DS_Store
+
+# Editor / agent local state
+.koecode/
+.mcp.json
+
+# Personal notes
+plan.md
+
+# Local dev & deploy scripts (keep only the tracked installer)
+/scripts/*
+!/scripts/install.sh
+
+# Kernel test playground (big local binaries)
+/kernel-test/
