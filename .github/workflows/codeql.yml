@@ -34,7 +34,11 @@ jobs:
 
       - name: Build
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_OPENSSL=ON
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_OPENSSL=ON \
+            -DBoost_NO_BOOST_CMAKE=ON \
+            -DCMAKE_POLICY_DEFAULT_CMP0167=OLD
           cmake --build build --config Debug -j$(nproc)
 
       - name: Perform CodeQL Analysis
