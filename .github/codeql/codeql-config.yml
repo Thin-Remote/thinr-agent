@@ -1,0 +1,8 @@
+name: "ThinR Agent CodeQL config"
+
+paths:
+  - src
+
+paths-ignore:
+  - boost
+  - build
