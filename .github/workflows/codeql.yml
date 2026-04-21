@@ -21,33 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libarchive-tools libarchive-dev
-
-      - name: Install Boost 1.86.0
-        id: install-boost
-        uses: MarkusJx/install-boost@v2.5.0
-        with:
-          boost_version: 1.86.0
-          platform_version: 22.04
-          toolset: gcc
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: c-cpp
+          build-mode: none
           queries: security-and-quality
-
-      - name: Build
-        env:
-          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DENABLE_OPENSSL=ON
-          cmake --build build --config Debug -j$(nproc)
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
