@@ -32,6 +32,8 @@ private:
     };
 
     cpu_sample prev_cpu_;
+    std::chrono::steady_clock::time_point prev_cpu_ts_{};
+    double cached_cpu_usage_ = 0.0;
     network_sample prev_net_;
     std::map<std::string, std::string> disk_paths_ = {{"root", "/"}};
     nlohmann::json system_info_;

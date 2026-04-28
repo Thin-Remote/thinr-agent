@@ -37,6 +37,7 @@ uint64_t monitoring::cpu_sample::active() const {
 
 monitoring::monitoring(thinger::iotmp::client& client) {
     prev_cpu_ = read_cpu_sample();
+    prev_cpu_ts_ = std::chrono::steady_clock::now();
     prev_net_ = read_network_sample();
 
     // Cache static system info (doesn't change at runtime)
@@ -129,13 +130,26 @@ monitoring::cpu_sample monitoring::read_cpu_sample() {
 #endif
 
 double monitoring::collect_cpu() {
+    // CPU% must be averaged over a non-trivial window. Resetting prev_cpu_
+    // on every call (multiple consumers: bucket poll, alarm evaluation,
+    // on-demand reads from CLI/dashboard) collapses the window to fractions
+    // of a second; with so few accumulated ticks a single active tick
+    // produces a spurious 100%. We gate sampling at a minimum window and
+    // return the cached value for any call inside it.
+    constexpr auto MIN_WINDOW = std::chrono::seconds(15);
+    auto now = std::chrono::steady_clock::now();
+    if (now - prev_cpu_ts_ < MIN_WINDOW) return cached_cpu_usage_;
+
     auto cur = read_cpu_sample();
     uint64_t total_delta  = cur.total()  - prev_cpu_.total();
     uint64_t active_delta = cur.active() - prev_cpu_.active();
     prev_cpu_ = cur;
+    prev_cpu_ts_ = now;
 
-    if (total_delta == 0) return 0.0;
-    return static_cast<double>(active_delta) / static_cast<double>(total_delta) * 100.0;
+    if (total_delta == 0) return cached_cpu_usage_;
+    cached_cpu_usage_ =
+        static_cast<double>(active_delta) / static_cast<double>(total_delta) * 100.0;
+    return cached_cpu_usage_;
 }
 
 // -- CPU Temperature (Linux only) --------------------------------------------
