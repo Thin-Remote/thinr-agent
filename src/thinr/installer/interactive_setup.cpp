@@ -661,6 +661,20 @@ std::string interactive_setup::select_or_create_product(const std::string& host,
         }
     }
 
+    auto seed_alarms = [&]() {
+        auto r = auth_manager_.ensure_default_alarms(host, username, access_token);
+        if (!r.listed) return;
+        if (r.created > 0) {
+            std::cout << utils::Console::success("Default monitoring alarms ready (" +
+                                                 std::to_string(r.created) + " created, " +
+                                                 std::to_string(r.already_present) + " already present)") << "\n";
+        }
+        if (r.failed > 0) {
+            std::cout << utils::Console::warning("Some default alarm rules could not be created (" +
+                                                 std::to_string(r.failed) + ")", false) << "\n";
+        }
+    };
+
     // Case 1: No ThinRemote products — auto-create default one
     if (products.empty()) {
         std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
@@ -669,6 +683,7 @@ std::string interactive_setup::select_or_create_product(const std::string& host,
 
         if (create_result.success) {
             std::cout << utils::Console::success("Product 'ThinRemote' created with monitoring bucket") << "\n";
+            seed_alarms();
             return "thinremote";
         } else {
             spdlog::debug("Failed to create default product: {} {}", create_result.status_code, create_result.error_detail);
@@ -680,6 +695,7 @@ std::string interactive_setup::select_or_create_product(const std::string& host,
     // Case 2: Only one ThinRemote product — auto-select it
     if (products.size() == 1) {
         std::cout << utils::Console::success("Using product: ") << products[0].second << "\n";
+        seed_alarms();
         return products[0].first;
     }
 
@@ -701,6 +717,7 @@ std::string interactive_setup::select_or_create_product(const std::string& host,
         // Selected an existing product
         std::string selected = products[choice - 1].first;
         std::cout << utils::Console::success("Selected product: ") << selected << "\n";
+        seed_alarms();
         return selected;
     } else if (choice == static_cast<int>(products.size()) + 1) {
         // Create new product
@@ -718,6 +735,7 @@ std::string interactive_setup::select_or_create_product(const std::string& host,
 
         if (create_result.success) {
             std::cout << utils::Console::success("Product created with monitoring bucket") << "\n\n";
+            seed_alarms();
             return product_id;
         } else {
             spdlog::debug("Failed to create product: {} {}", create_result.status_code, create_result.error_detail);

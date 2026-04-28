@@ -6,6 +6,7 @@
 #include <regex>
 #include <chrono>
 #include <map>
+#include <set>
 #include <sstream>
 #include <random>
 #include <algorithm>
@@ -555,6 +556,484 @@ auth_manager::ProductCreateResult auth_manager::create_product(const std::string
         spdlog::debug("Exception creating product: {}", e.what());
         return {false, 0, e.what()};
     }
+}
+
+auth_manager::AlarmRuleListResult auth_manager::list_alarm_rules(const std::string& host,
+                                                                 const std::string& username,
+                                                                 const std::string& access_token) {
+    std::string base_url = ensure_https(host);
+    std::string url = base_url + "/v1/users/" + username + "/alarms/rules";
+
+    spdlog::debug("Listing alarm rules for user: {}", username);
+
+    try {
+        HttpResponse response = make_http_request_with_fallback(url, "GET", {},
+                                                                "Bearer " + access_token);
+
+        if (!response.success || response.status_code != 200) {
+            spdlog::debug("Failed to list alarm rules: {} {}", response.status_code, response.body);
+            return {false, response.status_code, {}};
+        }
+
+        auto json_response = parse_response(response, "List alarm rules");
+        return {true, response.status_code, json_response};
+    } catch (const std::exception& e) {
+        spdlog::debug("Exception listing alarm rules: {}", e.what());
+        return {false, 0, {}};
+    }
+}
+
+auth_manager::AlarmRuleCreateResult auth_manager::create_alarm_rule(const std::string& host,
+                                                                    const std::string& username,
+                                                                    const std::string& access_token,
+                                                                    const nlohmann::json& rule_data) {
+    std::string base_url = ensure_https(host);
+    std::string url = base_url + "/v1/users/" + username + "/alarms/rules";
+
+    std::string rule_id = rule_data.value("rule", "");
+    spdlog::debug("Creating alarm rule '{}' for user: {}", rule_id, username);
+
+    try {
+        HttpResponse response = make_http_request_with_fallback(url, "POST", rule_data,
+                                                                "Bearer " + access_token);
+
+        if (!response.success || (response.status_code != 200 && response.status_code != 201)) {
+            spdlog::debug("Failed to create alarm rule '{}': {} {}", rule_id, response.status_code, response.body);
+            return {false, response.status_code, response.body};
+        }
+
+        spdlog::debug("Alarm rule '{}' created successfully", rule_id);
+        return {true, response.status_code, {}};
+    } catch (const std::exception& e) {
+        spdlog::debug("Exception creating alarm rule '{}': {}", rule_id, e.what());
+        return {false, 0, e.what()};
+    }
+}
+
+const std::vector<nlohmann::json>& auth_manager::default_alarm_rules() {
+    static const std::vector<nlohmann::json> rules = {
+        // high_cpu
+        {
+            {"rule", "high_cpu"},
+            {"name", "High CPU"},
+            {"description", "CPU usage above 85% averaged over 5 minutes"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.cpu.usage"},
+                            {"comparison", "above"},
+                            {"value", "85"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 1}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"cpu.usage"})},
+                                {"aggregation", {{"period", "5m"}, {"type", "mean"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 2}
+            }}
+        },
+        // high_memory
+        {
+            {"rule", "high_memory"},
+            {"name", "High Memory"},
+            {"description", "Memory usage above 80% averaged over 5 minutes"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.memory.usage"},
+                            {"comparison", "above"},
+                            {"value", "80"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 1}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"memory.usage"})},
+                                {"aggregation", {{"period", "5m"}, {"type", "mean"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 2}
+            }}
+        },
+        // high_disk
+        {
+            {"rule", "high_disk"},
+            {"name", "High Disk Usage"},
+            {"description", "Root filesystem usage above 75% averaged over 5 minutes"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.disk.root.usage"},
+                            {"comparison", "above"},
+                            {"value", "75"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 30}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"disk.root.usage"})},
+                                {"aggregation", {{"period", "5m"}, {"type", "mean"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 2}
+            }}
+        },
+        // high_swap (only fires on devices with swap configured)
+        {
+            {"rule", "high_swap"},
+            {"name", "High Swap Usage"},
+            {"description", "Swap usage above 50% averaged over 5 minutes (devices with swap configured)"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.memory.swap.usage"},
+                            {"comparison", "present"},
+                            {"value", "0"}
+                        },
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.memory.swap.usage"},
+                            {"comparison", "above"},
+                            {"value", "50"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 1}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"memory.swap.usage"})},
+                                {"aggregation", {{"period", "5m"}, {"type", "mean"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 2}
+            }}
+        },
+        // high_cpu_temperature (only fires on devices that report cpu.temperature)
+        {
+            {"rule", "high_cpu_temperature"},
+            {"name", "High CPU Temperature"},
+            {"description", "CPU temperature above 80\xC2\xB0""C averaged over 5 minutes (devices with thermal sensor)"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.cpu.temperature"},
+                            {"comparison", "present"},
+                            {"value", "0"}
+                        },
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.cpu.temperature"},
+                            {"comparison", "above"},
+                            {"value", "80"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 1}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"cpu.temperature"})},
+                                {"aggregation", {{"period", "5m"}, {"type", "mean"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 2}
+            }}
+        },
+        // missing_bucket_data
+        {
+            {"rule", "missing_bucket_data"},
+            {"name", "Missing Monitoring Data"},
+            {"description", "Enabled devices not reporting monitoring data"},
+            {"enabled", true},
+            {"config", {
+                {"activation", {
+                    {"conditions", nlohmann::json::array({
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "device.enabled"},
+                            {"comparison", "equal"},
+                            {"value", "1"}
+                        },
+                        {
+                            {"type", "value_check"},
+                            {"operator", "and"},
+                            {"field", "monitoring.cpu.usage"},
+                            {"comparison", "absent"},
+                            {"value", "0"}
+                        }
+                    })},
+                    {"confirmation", {{"mode", "immediate"}}},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"check_interval", {{"magnitude", "minute"}, {"value", 1}}},
+                {"data", {
+                    {"sources", nlohmann::json::array({
+                        {
+                            {"name", "device"},
+                            {"source", "device_status"},
+                            {"device_status", {
+                                {"asset_group", nlohmann::json::array()},
+                                {"asset_type", nlohmann::json::array()},
+                                {"device", nlohmann::json::array()},
+                                {"product", nlohmann::json::array()},
+                                {"project", nlohmann::json::array()}
+                            }}
+                        },
+                        {
+                            {"name", "monitoring"},
+                            {"source", "bucket"},
+                            {"bucket", {
+                                {"id", "monitoring"},
+                                {"backend", "mongodb"},
+                                {"group_by", nlohmann::json::array({"device"})},
+                                {"mapping", nlohmann::json::array({"cpu.usage"})},
+                                {"aggregation", {{"period", "10m"}}},
+                                {"tags", {
+                                    {"device", nlohmann::json::array()},
+                                    {"group", nlohmann::json::array()}
+                                }}
+                            }}
+                        }
+                    })}
+                }},
+                {"normalization", {
+                    {"conditions", nlohmann::json::array()},
+                    {"confirmation", {
+                        {"mode", "timespan"},
+                        {"timespan", {{"magnitude", "minute"}, {"value", 5}}}
+                    }},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"reminder", {
+                    {"type", "none"},
+                    {"notifications", nlohmann::json::array()}
+                }},
+                {"severity", 3}
+            }}
+        }
+    };
+    return rules;
+}
+
+bool auth_manager::delete_alarm_rule(const std::string& host,
+                                     const std::string& username,
+                                     const std::string& access_token,
+                                     const std::string& rule_id) {
+    std::string base_url = ensure_https(host);
+    std::string url = base_url + "/v1/users/" + username + "/alarms/rules/" + rule_id;
+
+    spdlog::debug("Deleting alarm rule '{}' for user: {}", rule_id, username);
+
+    try {
+        HttpResponse response = make_http_request_with_fallback(url, "DELETE", {},
+                                                                "Bearer " + access_token);
+        if (!response.success) return false;
+        return response.status_code == 200 || response.status_code == 204 || response.status_code == 404;
+    } catch (const std::exception& e) {
+        spdlog::debug("Exception deleting alarm rule '{}': {}", rule_id, e.what());
+        return false;
+    }
+}
+
+auth_manager::EnsureAlarmsResult auth_manager::ensure_default_alarms(const std::string& host,
+                                                                     const std::string& username,
+                                                                     const std::string& access_token,
+                                                                     bool force) {
+    EnsureAlarmsResult result{};
+
+    auto list_result = list_alarm_rules(host, username, access_token);
+    if (!list_result.success) {
+        spdlog::debug("Could not list alarm rules (HTTP {}), skipping default alarm seeding",
+                      list_result.status_code);
+        return result;
+    }
+    result.listed = true;
+
+    std::set<std::string> existing_ids;
+    if (list_result.rules.is_array()) {
+        for (const auto& r : list_result.rules) {
+            std::string id = r.value("rule", "");
+            if (!id.empty()) existing_ids.insert(id);
+        }
+    }
+
+    if (force) {
+        for (const auto& rule_def : default_alarm_rules()) {
+            std::string id = rule_def.value("rule", "");
+            if (id.empty() || !existing_ids.count(id)) continue;
+            if (delete_alarm_rule(host, username, access_token, id)) {
+                existing_ids.erase(id);
+            }
+        }
+    }
+
+    for (const auto& rule_def : default_alarm_rules()) {
+        std::string id = rule_def.value("rule", "");
+        if (id.empty()) continue;
+        if (existing_ids.count(id)) {
+            result.already_present++;
+            continue;
+        }
+
+        auto create_result = create_alarm_rule(host, username, access_token, rule_def);
+        if (create_result.success) {
+            result.created++;
+        } else {
+            result.failed++;
+            spdlog::debug("Failed to create alarm rule '{}': {} {}",
+                          id, create_result.status_code, create_result.error_detail);
+        }
+    }
+
+    return result;
 }
 
 nlohmann::json auth_manager::build_default_product(const std::string& product_id, const std::string& product_name) {

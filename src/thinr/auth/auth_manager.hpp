@@ -6,6 +6,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <vector>
 #include <nlohmann/json.hpp>
 #include "../config/config_manager.hpp"
 
@@ -102,6 +103,50 @@ public:
 
     // Build default ThinRemote product JSON payload
     static nlohmann::json build_default_product(const std::string& product_id, const std::string& product_name);
+
+    // Alarm rule management
+    struct AlarmRuleListResult {
+        bool success = false;
+        int status_code = 0;
+        nlohmann::json rules; // JSON array of alarm rules
+    };
+
+    AlarmRuleListResult list_alarm_rules(const std::string& host,
+                                         const std::string& username,
+                                         const std::string& access_token);
+
+    struct AlarmRuleCreateResult {
+        bool success = false;
+        int status_code = 0;
+        std::string error_detail;
+    };
+
+    AlarmRuleCreateResult create_alarm_rule(const std::string& host,
+                                            const std::string& username,
+                                            const std::string& access_token,
+                                            const nlohmann::json& rule_data);
+
+    bool delete_alarm_rule(const std::string& host,
+                           const std::string& username,
+                           const std::string& access_token,
+                           const std::string& rule_id);
+
+    // Default ThinRemote monitoring alarm rules (high_cpu, high_memory, high_disk, missing_bucket_data)
+    static const std::vector<nlohmann::json>& default_alarm_rules();
+
+    struct EnsureAlarmsResult {
+        bool listed = false;       // listing succeeded (idempotency requires it)
+        int created = 0;           // rules created in this call
+        int already_present = 0;   // rules that existed already
+        int failed = 0;            // rules whose creation failed
+    };
+
+    // Idempotently create the default monitoring alarm rules for the user.
+    // Skips rules that already exist; never overwrites them.
+    EnsureAlarmsResult ensure_default_alarms(const std::string& host,
+                                             const std::string& username,
+                                             const std::string& access_token,
+                                             bool force = false);
 
     // Decode JWT payload (public for use by interactive setup)
     nlohmann::json decode_jwt_payload(const std::string& jwt_token);

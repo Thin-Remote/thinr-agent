@@ -63,6 +63,7 @@ int command_handler::execute(const ParseResult& parse_result) {
         case ParseResult::Command::TEST:
         case ParseResult::Command::RECONFIGURE:
         case ParseResult::Command::UPDATE:
+        case ParseResult::Command::BOOTSTRAP:
             needs_ssl = true;
             break;
         case ParseResult::Command::NONE:
@@ -103,6 +104,9 @@ int command_handler::execute(const ParseResult& parse_result) {
 
         case ParseResult::Command::UPDATE:
             return handle_update(parse_result.update_options);
+
+        case ParseResult::Command::BOOTSTRAP:
+            return handle_bootstrap(parse_result.bootstrap_options);
 
         case ParseResult::Command::NONE:
             return handle_no_command(parse_result.config_path);
@@ -347,58 +351,92 @@ std::string command_handler::resolve_product(const std::string& host, const std:
         return provided_product;
     }
 
+    std::string resolved_id;
+
     if (!provided_product.empty()) {
+        bool found = false;
         if (list_result.products.is_array()) {
             for (const auto& p : list_result.products) {
                 if (p.value("product", "") == provided_product) {
                     std::cout << utils::Console::success("Using product: ") << p.value("name", provided_product) << "\n";
-                    return provided_product;
+                    found = true;
+                    break;
                 }
             }
         }
 
-        std::cout << utils::Console::loading("Creating product '" + provided_product + "'...") << "\n";
+        if (found) {
+            resolved_id = provided_product;
+        } else {
+            std::cout << utils::Console::loading("Creating product '" + provided_product + "'...") << "\n";
 
-        auto product_data = auth::auth_manager::build_default_product(provided_product, provided_product);
-        auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+            auto product_data = auth::auth_manager::build_default_product(provided_product, provided_product);
+            auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
 
-        if (create_result.success) {
-            std::cout << utils::Console::success("Product '" + provided_product + "' created") << "\n";
-            return provided_product;
-        }
-
-        spdlog::debug("Failed to create product '{}': {} {}", provided_product, create_result.status_code, create_result.error_detail);
-        return provided_product;
-    }
-
-    if (list_result.products.is_array()) {
-        for (const auto& p : list_result.products) {
-            std::string type;
-            if (p.contains("config") && p["config"].contains("type")) {
-                type = p["config"]["type"].get<std::string>();
+            if (create_result.success) {
+                std::cout << utils::Console::success("Product '" + provided_product + "' created") << "\n";
+            } else {
+                spdlog::debug("Failed to create product '{}': {} {}", provided_product, create_result.status_code, create_result.error_detail);
             }
-            if (type == "thinremote") {
-                std::string id = p.value("product", "");
-                if (!id.empty()) {
-                    std::cout << utils::Console::success("Using product: ") << p.value("name", id) << "\n";
-                    return id;
+            resolved_id = provided_product;
+        }
+    } else {
+        if (list_result.products.is_array()) {
+            for (const auto& p : list_result.products) {
+                std::string type;
+                if (p.contains("config") && p["config"].contains("type")) {
+                    type = p["config"]["type"].get<std::string>();
+                }
+                if (type == "thinremote") {
+                    std::string id = p.value("product", "");
+                    if (!id.empty()) {
+                        std::cout << utils::Console::success("Using product: ") << p.value("name", id) << "\n";
+                        resolved_id = id;
+                        break;
+                    }
                 }
             }
         }
+
+        if (resolved_id.empty()) {
+            std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
+
+            auto product_data = auth::auth_manager::build_default_product("thinremote", "ThinRemote");
+            auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
+
+            if (create_result.success) {
+                std::cout << utils::Console::success("Product 'ThinRemote' created") << "\n";
+                resolved_id = "thinremote";
+            } else {
+                spdlog::debug("Failed to create default product: {} {}", create_result.status_code, create_result.error_detail);
+            }
+        }
     }
 
-    std::cout << utils::Console::loading("Creating default ThinRemote product...") << "\n";
-
-    auto product_data = auth::auth_manager::build_default_product("thinremote", "ThinRemote");
-    auto create_result = auth_manager_.create_product(host, username, access_token, product_data);
-
-    if (create_result.success) {
-        std::cout << utils::Console::success("Product 'ThinRemote' created") << "\n";
-        return "thinremote";
+    if (!resolved_id.empty()) {
+        seed_default_alarms(host, username, access_token);
     }
 
-    spdlog::debug("Failed to create default product: {} {}", create_result.status_code, create_result.error_detail);
-    return "";
+    return resolved_id;
+}
+
+void command_handler::seed_default_alarms(const std::string& host,
+                                          const std::string& username,
+                                          const std::string& access_token) {
+    auto result = auth_manager_.ensure_default_alarms(host, username, access_token);
+    if (!result.listed) {
+        spdlog::debug("Skipped default alarm seeding (could not list existing rules)");
+        return;
+    }
+    if (result.created > 0) {
+        std::cout << utils::Console::success("Default monitoring alarms ready (" +
+                                              std::to_string(result.created) + " created, " +
+                                              std::to_string(result.already_present) + " already present)") << "\n";
+    }
+    if (result.failed > 0) {
+        std::cout << utils::Console::warning("Some default alarm rules could not be created (" +
+                                              std::to_string(result.failed) + ")", false) << "\n";
+    }
 }
 
 int command_handler::handle_uninstall() {
@@ -457,6 +495,55 @@ int command_handler::handle_update(const UpdateOptions& options) {
         std::cout << utils::Console::error("Update failed.") << "\n";
     }
     return 1;
+}
+
+int command_handler::handle_bootstrap(const BootstrapOptions& options) {
+    utils::Console::printSectionHeader("ThinRemote Bootstrap", "🔔");
+
+    if (options.token.empty()) {
+        std::cout << utils::Console::error("--token is required") << "\n";
+        std::cout << "Run 'thinr-agent bootstrap --help' for usage.\n";
+        return 1;
+    }
+
+    if (options.no_verify_ssl) {
+        auth_manager_.set_ssl_verification_callback([](const std::string&) { return true; });
+    }
+
+    std::string host;
+    std::string username;
+    try {
+        auto payload = auth_manager_.decode_jwt_payload(options.token);
+        if (!payload.contains("svr") || !payload.contains("usr")) {
+            std::cout << utils::Console::error("Invalid token: missing 'svr' or 'usr' claim") << "\n";
+            return 1;
+        }
+        host = payload["svr"];
+        username = payload["usr"];
+    } catch (const std::exception& e) {
+        std::cout << utils::Console::error("Failed to decode token: ") << e.what() << "\n";
+        return 1;
+    }
+
+    std::cout << utils::Console::cyan("Server:   ") << host << "\n";
+    std::cout << utils::Console::cyan("Username: ") << username << "\n\n";
+
+    std::cout << utils::Console::loading(options.force ? "Resetting default monitoring alarms..."
+                                                       : "Seeding default monitoring alarms...") << "\n";
+    auto result = auth_manager_.ensure_default_alarms(host, username, options.token, options.force);
+
+    if (!result.listed) {
+        std::cout << utils::Console::error("Could not list existing alarm rules — check token scope and host reachability") << "\n";
+        return 1;
+    }
+
+    std::cout << utils::Console::success("Created:        ") << result.created << "\n";
+    std::cout << utils::Console::cyan("Already present: ") << result.already_present << "\n";
+    if (result.failed > 0) {
+        std::cout << utils::Console::warning("Failed:          ", false) << result.failed << "\n";
+        return 1;
+    }
+    return 0;
 }
 
 int command_handler::handle_reconfigure() {

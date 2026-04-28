@@ -24,6 +24,12 @@ struct UpdateOptions {
     bool apply = false;  // false = check only, true = download and install
 };
 
+struct BootstrapOptions {
+    std::string token;
+    bool force = false;
+    bool no_verify_ssl = false;
+};
+
 struct ParseResult {
     enum class Command {
         NONE,           // No command (interactive setup or agent mode)
@@ -33,6 +39,7 @@ struct ParseResult {
         TEST,           // Test connection
         RECONFIGURE,    // Reconfigure
         UPDATE,         // Check/apply self-update
+        BOOTSTRAP,      // Seed product + default alarms (no device provisioning)
         HELP,           // Show help
         VERSION,        // Show version
         UNKNOWN         // Unknown command
@@ -46,6 +53,7 @@ struct ParseResult {
     // Command-specific options
     InstallOptions install_options;
     UpdateOptions update_options;
+    BootstrapOptions bootstrap_options;
     
     // Status
     bool success = true;

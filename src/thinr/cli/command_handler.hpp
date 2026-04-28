@@ -24,6 +24,7 @@ public:
     int handle_test();
     int handle_reconfigure();
     int handle_update(const UpdateOptions& options);
+    int handle_bootstrap(const BootstrapOptions& options);
     int handle_no_command(const std::string& config_path);
 
 private:
@@ -49,6 +50,8 @@ private:
     std::string determine_device_name(const std::string& fallback);
     std::string resolve_product(const std::string& host, const std::string& username,
                                 const std::string& access_token, const std::string& provided_product);
+    void seed_default_alarms(const std::string& host, const std::string& username,
+                             const std::string& access_token);
 
     // System-wide detection
     bool check_system_installation() const;

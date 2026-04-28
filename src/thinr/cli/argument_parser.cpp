@@ -113,6 +113,27 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
             }
         }
 
+        if (result.command == ParseResult::Command::BOOTSTRAP) {
+            po::options_description bootstrap_desc("Bootstrap options");
+            bootstrap_desc.add_options()
+                ("help,h", "show help for bootstrap command")
+                ("token", po::value<std::string>(&result.bootstrap_options.token), "JWT token (svr+usr claims). Required.")
+                ("force", po::bool_switch(&result.bootstrap_options.force), "delete and recreate existing default rules (useful when defaults change)")
+                ("no-verify-ssl", po::bool_switch(&result.bootstrap_options.no_verify_ssl), "disable SSL certificate verification");
+
+            po::variables_map bootstrap_vm;
+            po::store(po::command_line_parser(sub_args)
+                .options(bootstrap_desc)
+                .run(), bootstrap_vm);
+            po::notify(bootstrap_vm);
+
+            if (bootstrap_vm.count("help")) {
+                result.command = ParseResult::Command::HELP;
+                result.command_str = "bootstrap";
+                return result;
+            }
+        }
+
         if (result.command == ParseResult::Command::UPDATE) {
             po::options_description update_desc("Update options");
             update_desc.add_options()
@@ -149,6 +170,24 @@ void argument_parser::show_help(const std::string& command) const {
         show_install_help();
     } else if (command == "update") {
         show_update_help();
+    } else if (command == "bootstrap") {
+        std::cout << "ThinRemote " << AGENT_VERSION << " - Bootstrap Command\n";
+        std::cout << "Usage: thinr-agent bootstrap --token <jwt> [options]\n\n";
+        std::cout << "Idempotently seeds the default monitoring alarm rules (high_cpu, high_memory,\n";
+        std::cout << "high_disk, missing_bucket_data) on the user's account. Skips rules that\n";
+        std::cout << "already exist; never overwrites tweaked rules.\n\n";
+        std::cout << "Does NOT provision a device, write config, install a service, or touch\n";
+        std::cout << "products. Useful for testing the seeding flow or applying defaults to an\n";
+        std::cout << "account that was set up before the agent shipped this feature.\n\n";
+        std::cout << "Options:\n";
+        std::cout << "  --token TOKEN    JWT containing 'svr' (host) and 'usr' (username) claims (required)\n";
+        std::cout << "  --force          Delete existing default rules and recreate (resets to defaults)\n";
+        std::cout << "  --no-verify-ssl  Disable SSL certificate verification\n";
+        std::cout << "  -h, --help       Show this help message\n\n";
+        std::cout << "Examples:\n";
+        std::cout << "  thinr-agent bootstrap --token abc123\n";
+        std::cout << "  thinr-agent bootstrap --token abc123 --force          # reset rules to defaults\n";
+        std::cout << "  thinr-agent bootstrap --token abc123 --no-verify-ssl  # self-signed test env\n";
     } else {
         std::cout << "Unknown command: " << command << "\n\n";
         show_general_help();
@@ -165,7 +204,8 @@ void argument_parser::show_general_help() const {
     std::cout << "  status           Show connection status\n";
     std::cout << "  reconfigure      Restart interactive configuration\n";
     std::cout << "  test             Test connection with current config\n";
-    std::cout << "  update           Check for or apply an agent self-update\n\n";
+    std::cout << "  update           Check for or apply an agent self-update\n";
+    std::cout << "  bootstrap        Seed default monitoring alarm rules (no device provisioning)\n\n";
     std::cout << "General options:\n";
     std::cout << "  -h, --help       Show help message\n";
     std::cout << "  -v               Increase verbosity (-v=info, -vv=debug)\n";
@@ -218,6 +258,7 @@ ParseResult::Command argument_parser::string_to_command(const std::string& cmd) 
     if (cmd == "test") return ParseResult::Command::TEST;
     if (cmd == "reconfigure") return ParseResult::Command::RECONFIGURE;
     if (cmd == "update") return ParseResult::Command::UPDATE;
+    if (cmd == "bootstrap") return ParseResult::Command::BOOTSTRAP;
     return ParseResult::Command::UNKNOWN;
 }
 
