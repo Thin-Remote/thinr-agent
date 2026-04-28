@@ -48,7 +48,7 @@ struct ParseResult {
     Command command = Command::NONE;
     std::string command_str;
     std::string config_path;
-    int verbosity_level = 1;
+    int verbosity_level = 3;
 
     // Command-specific options
     InstallOptions install_options;
