@@ -28,6 +28,10 @@ BASE_URL="${PROTOCOL}://get.thinremote.io"
 OS=""
 ARCH=""
 VERSION=""
+USER_MODE=0
+RUNNER=""
+TTY_OK=0
+INSTALL_MODE=""
 
 usage() {
     cat <<EOF
@@ -38,10 +42,21 @@ Usage: install.sh [OPTIONS]
 OPTIONS:
     -h, --help          Show this help message
     -v, --version       Install specific version (default: latest)
-    
+    --user              Install for the current user only, never elevate
+
+By default the agent is installed as a system service, which needs root.
+When this script is not running as root it offers to re-run the agent under
+sudo, so the service starts at boot independently of any login session.
+
 Examples:
-    # Install latest stable version
+    # Install latest stable version (asks for sudo if needed)
     curl -fsSL https://get.thinremote.io/install.sh | sh
+
+    # Install as a system service without being asked
+    curl -fsSL https://get.thinremote.io/install.sh | sudo sh
+
+    # Install for the current user only
+    curl -fsSL https://get.thinremote.io/install.sh | sh -s -- --user
     
     # Install from main branch
     curl -fsSL https://get.thinremote.io/install-main.sh | sh
@@ -310,6 +325,87 @@ construct_binary_name() {
     fi
 }
 
+# The agent binary is what needs privileges; detecting the system and
+# downloading the binary work fine unprivileged. So rather than re-executing
+# this script (awkward, since it is usually read from a pipe), elevate only
+# the final invocation.
+detect_tty() {
+    # /dev/tty exists on every Linux system, so `-e /dev/tty` is a poor check:
+    # it is true even when the process has no controlling terminal (systemd
+    # units, cron, remote command runners). Verify it can actually be opened.
+    if [ -e /dev/tty ] && ( : < /dev/tty ) 2>/dev/null; then
+        TTY_OK=1
+    else
+        TTY_OK=0
+    fi
+}
+
+user_mode_notice() {
+    echo "  The agent will be installed for the current user ($(id -un))."
+    echo "  It runs with that user's permissions and, on Linux, only starts"
+    echo "  at boot if you enable lingering: loginctl enable-linger \$USER"
+    echo
+}
+
+setup_privileges() {
+    if [ "$(id -u)" = "0" ]; then
+        INSTALL_MODE="system-wide (root)"
+        return
+    fi
+
+    INSTALL_MODE="user ($(id -un))"
+
+    if [ "$USER_MODE" = "1" ]; then
+        return
+    fi
+
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo "Note: not running as root and sudo is not available."
+        user_mode_notice
+        return
+    fi
+
+    if [ "$TTY_OK" = "1" ]; then
+        printf "Install as a system service? It needs sudo and starts at boot. [Y/n] "
+        read -r answer < /dev/tty || answer=""
+        echo
+        case "$answer" in
+            [Nn]*)
+                user_mode_notice
+                return
+                ;;
+        esac
+
+        # Ask for the password now, so the prompt appears next to the question
+        # instead of in the middle of the install.
+        if sudo -v < /dev/tty; then
+            RUNNER="sudo"
+            INSTALL_MODE="system-wide (via sudo)"
+        else
+            echo "Could not elevate with sudo."
+            user_mode_notice
+        fi
+        return
+    fi
+
+    # Unattended: no terminal to ask on. Elevate silently when sudo needs no
+    # password (common on provisioning images), otherwise say clearly what is
+    # about to happen, since nobody is watching the prompts.
+    if sudo -n true 2>/dev/null; then
+        RUNNER="sudo"
+        INSTALL_MODE="system-wide (via passwordless sudo)"
+        return
+    fi
+
+    echo "Warning: not running as root, and sudo needs a password that cannot"
+    echo "  be asked for here, so this will NOT be a system service."
+    user_mode_notice
+    echo "  For a system-wide install, put sudo in front of the interpreter"
+    echo "  (piping 'sudo curl ...' into 'sh' only elevates the download):"
+    echo "    curl -fsSL <installer-url> | sudo sh -s -- <arguments>"
+    echo
+}
+
 main() {
     # Parse launcher-specific flags. The first argument that is not recognized
     # by the launcher ends launcher parsing — everything from there on is
@@ -331,6 +427,10 @@ main() {
                 VERSION="$1"
                 shift
                 ;;
+            --user)
+                USER_MODE=1
+                shift
+                ;;
             --)
                 shift
                 break
@@ -350,10 +450,15 @@ main() {
     detect_arch
     detect_libc
     check_prerequisites
+    detect_tty
     
     echo "System detected:"
     echo "  OS: $OS"
     echo "  Architecture: $ARCH"
+    echo
+    
+    setup_privileges
+    echo "Install mode: $INSTALL_MODE"
     echo
     
     # Get version if not specified
@@ -416,17 +521,13 @@ main() {
     echo "================================"
     echo
     
-    # Execute the binary
-    # Redirect stdin to /dev/tty to make it interactive even when piped, but
-    # only if /dev/tty can actually be opened. The file exists on every Linux
-    # system, so `-e /dev/tty` is a poor check: it returns true even when the
-    # process has no controlling terminal (systemd units, cron, remote cmd
-    # runners), and the following redirect then fails with "cannot open
-    # /dev/tty: No such device or address". Verify openability first.
-    if [ -e /dev/tty ] && ( : < /dev/tty ) 2>/dev/null; then
-        "$TEMP_DIR/$BINARY_NAME" "$@" < /dev/tty
+    # Execute the binary, elevated when a system-wide install was chosen.
+    # Redirect stdin to /dev/tty to make it interactive even when piped, which
+    # detect_tty has already checked is possible.
+    if [ "$TTY_OK" = "1" ]; then
+        $RUNNER "$TEMP_DIR/$BINARY_NAME" "$@" < /dev/tty
     else
-        "$TEMP_DIR/$BINARY_NAME" "$@"
+        $RUNNER "$TEMP_DIR/$BINARY_NAME" "$@"
     fi
     
     # The trap will clean up the temp directory when this script exits
