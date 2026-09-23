@@ -28,6 +28,7 @@ BASE_URL="${PROTOCOL}://get.thinremote.io"
 OS=""
 ARCH=""
 VERSION=""
+PINNED=0
 USER_MODE=0
 RUNNER=""
 TTY_OK=0
@@ -461,9 +462,13 @@ main() {
     echo "Install mode: $INSTALL_MODE"
     echo
     
-    # Get version if not specified
+    # An explicit -v pins a version; otherwise the channel names the
+    # directory to download from.
     if [ -z "$VERSION" ]; then
         VERSION=$(get_latest_version)
+        PINNED=0
+    else
+        PINNED=1
     fi
     
     # Show appropriate message based on channel
@@ -476,12 +481,11 @@ main() {
     # Construct download URL
     BINARY_FILE=$(construct_binary_name)
     
-    # Use CDN URL structure
-    if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "main" ] || [ "$CHANNEL" = "develop" ]; then
-        # For channels, use binaries/channel/filename
+    # Use CDN URL structure: binaries/<channel>/file for a channel head,
+    # binaries/<version>/file for a pinned release.
+    if [ "$PINNED" = "0" ] && { [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "main" ] || [ "$CHANNEL" = "develop" ]; }; then
         DOWNLOAD_URL="${BASE_URL}/binaries/${CHANNEL}/${BINARY_FILE}"
     else
-        # For specific versions (tags), use binaries/version/filename
         DOWNLOAD_URL="${BASE_URL}/binaries/${VERSION}/${BINARY_FILE}"
     fi
     
