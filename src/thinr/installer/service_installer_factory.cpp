@@ -4,6 +4,7 @@
 #include "init_systems/sysv_service_installer.hpp"
 #include "init_systems/openrc_service_installer.hpp"
 #include "init_systems/upstart_service_installer.hpp"
+#include "init_systems/android_service_installer.hpp"
 #include <sys/utsname.h>
 #include <filesystem>
 #include <spdlog/spdlog.h>
@@ -11,6 +12,11 @@
 namespace thinr::installer {
 
 std::unique_ptr<base_service_installer> service_installer_factory::create() {
+#ifdef __ANDROID__
+    // The app's Foreground Service is the init system on Android.
+    return std::make_unique<android_service_installer>();
+#endif
+
     std::string init_system = detect_init_system();
     spdlog::debug("Detected init system: {}", init_system);
 

@@ -285,7 +285,13 @@ bool command_handler::save_and_install_service(const config::DeviceCredentials& 
     config_manager_.save(final_credentials);
     std::string config_path = config_manager_.get_config_path();
     std::cout << utils::Console::success("Configuration saved: " + config_path) << "\n";
-    
+
+#ifdef __ANDROID__
+    // The app's Foreground Service owns the agent lifecycle on Android;
+    // there is no init system to register with.
+    (void) no_start;
+    return true;
+#else
     // Install service
     std::cout << utils::Console::loading("Installing service...") << "\n";
     installer::service_installer service_installer;
@@ -310,8 +316,9 @@ bool command_handler::save_and_install_service(const config::DeviceCredentials& 
         std::cout << utils::Console::cyan("Service installed but not started (--no-start flag used).") << "\n";
         std::cout << "Start it manually when ready.\n";
     }
-    
+
     return true;
+#endif
 }
 
 std::string command_handler::determine_device_id(const std::string& provided_device_id) {

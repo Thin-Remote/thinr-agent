@@ -28,12 +28,14 @@ private:
     struct network_sample {
         uint64_t rx_bytes = 0;
         uint64_t tx_bytes = 0;
+        bool valid = false;
         std::chrono::steady_clock::time_point timestamp;
     };
 
     cpu_sample prev_cpu_;
     std::chrono::steady_clock::time_point prev_cpu_ts_{};
     double cached_cpu_usage_ = 0.0;
+    bool cpu_available_ = false;
     network_sample prev_net_;
     std::map<std::string, std::string> disk_paths_ = {{"root", "/"}};
     nlohmann::json system_info_;

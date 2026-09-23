@@ -11,6 +11,10 @@
 #include <sstream>
 #endif
 
+#ifdef __ANDROID__
+#include <sys/sysinfo.h>
+#endif
+
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <sys/sysctl.h>
@@ -37,8 +41,10 @@ uint64_t monitoring::cpu_sample::active() const {
 
 monitoring::monitoring(thinger::iotmp::client& client) {
     prev_cpu_ = read_cpu_sample();
+    cpu_available_ = prev_cpu_.total() > 0;
     prev_cpu_ts_ = std::chrono::steady_clock::now();
     prev_net_ = read_network_sample();
+    set_disk_paths({});
 
     // Cache static system info (doesn't change at runtime)
     struct utsname info;
@@ -65,7 +71,9 @@ void monitoring::collect(thinger::iotmp::output& out) {
     json["system"] = system_info_;
     json["agent"]  = agent_info_;
     auto& cpu = json["cpu"];
-    cpu["usage"] = collect_cpu();
+    // CPU usage needs /proc/stat samples; report it only where readable
+    // (Android SELinux blocks it for apps).
+    if (cpu_available_) cpu["usage"] = collect_cpu();
     cpu["cores"] = std::thread::hardware_concurrency();
 #ifdef __linux__
     auto temp = read_cpu_temperature();
@@ -73,7 +81,9 @@ void monitoring::collect(thinger::iotmp::output& out) {
 #endif
     collect_memory(json["memory"]);
     collect_disk(json["disk"]);
-    collect_network(json["network"]);
+    nlohmann::json network;
+    collect_network(network);
+    if (!network.is_null()) json["network"] = std::move(network);
     collect_load(json["load"]);
     out["uptime"]              = collect_uptime();
     json["processes"]["total"] = collect_processes();
@@ -173,6 +183,31 @@ double monitoring::read_cpu_temperature() {
 
 void monitoring::collect_memory(nlohmann::json& out) {
     std::ifstream meminfo("/proc/meminfo");
+#ifdef __ANDROID__
+    if (!meminfo) {
+        // SELinux may block /proc/meminfo for apps; sysinfo() is a syscall
+        // and always works, with free+buffers approximating MemAvailable.
+        struct sysinfo info{};
+        if (sysinfo(&info) != 0) return;
+        const uint64_t unit = info.mem_unit ? info.mem_unit : 1;
+        const uint64_t total      = info.totalram * unit;
+        const uint64_t available  = (info.freeram + info.bufferram) * unit;
+        const uint64_t swap_total = info.totalswap * unit;
+        out["total"]     = total;
+        out["available"] = available;
+        out["usage"]     = total > 0
+            ? static_cast<double>(total - available) / static_cast<double>(total) * 100.0
+            : 0.0;
+        if (swap_total > 0) {
+            auto& swap    = out["swap"];
+            swap["total"] = swap_total;
+            swap["free"]  = info.freeswap * unit;
+            swap["usage"] = static_cast<double>(swap_total - info.freeswap * unit) /
+                            static_cast<double>(swap_total) * 100.0;
+        }
+        return;
+    }
+#endif
     if (!meminfo) return;
 
     uint64_t total = 0, available = 0, swap_total = 0, swap_free = 0;
@@ -260,7 +295,16 @@ void monitoring::collect_memory(nlohmann::json& out) {
 
 void monitoring::set_disk_paths(std::map<std::string, std::string> paths) {
     if (paths.empty()) {
+#ifdef __ANDROID__
+        // "/" is the tiny read-only rootfs; the volume that matters to an app
+        // is the userdata partition, reachable through its own data dir. Keep
+        // the "root" key so fleet dashboards and the default high_disk alarm
+        // stay uniform across platforms.
+        const char* home = std::getenv("HOME");
+        disk_paths_ = {{"root", (home && *home) ? home : "/data"}};
+#else
         disk_paths_ = {{"root", "/"}};
+#endif
     } else {
         disk_paths_ = std::move(paths);
     }
@@ -285,12 +329,24 @@ void monitoring::collect_disk(nlohmann::json& out) {
 // -- Load Average ------------------------------------------------------------
 
 void monitoring::collect_load(nlohmann::json& out) {
+#ifdef __ANDROID__
+    // getloadavg() requires API 29; sysinfo() works on every supported level
+    // (loads are fixed-point, scaled by 1 << SI_LOAD_SHIFT).
+    constexpr double scale = 65536.0;
+    struct sysinfo info{};
+    if (sysinfo(&info) == 0) {
+        out["1m"]  = info.loads[0] / scale;
+        out["5m"]  = info.loads[1] / scale;
+        out["15m"] = info.loads[2] / scale;
+    }
+#else
     double loads[3] = {};
     if (getloadavg(loads, 3) == 3) {
         out["1m"]  = loads[0];
         out["5m"]  = loads[1];
         out["15m"] = loads[2];
     }
+#endif
 }
 
 // -- Uptime ------------------------------------------------------------------
@@ -299,10 +355,14 @@ void monitoring::collect_load(nlohmann::json& out) {
 
 uint64_t monitoring::collect_uptime() {
     std::ifstream uptime("/proc/uptime");
-    if (!uptime) return 0;
     double secs = 0;
-    uptime >> secs;
-    return static_cast<uint64_t>(secs);
+    if (uptime >> secs) return static_cast<uint64_t>(secs);
+#ifdef __ANDROID__
+    // Fallback when SELinux blocks /proc/uptime for apps.
+    struct sysinfo info{};
+    if (sysinfo(&info) == 0) return static_cast<uint64_t>(info.uptime);
+#endif
+    return 0;
 }
 
 #elif defined(__APPLE__)
@@ -319,7 +379,16 @@ uint64_t monitoring::collect_uptime() {
 
 // -- Processes ---------------------------------------------------------------
 
-#ifdef __linux__
+#if defined(__ANDROID__)
+
+uint32_t monitoring::collect_processes() {
+    // Apps only see their own PIDs under /proc; sysinfo() reports the
+    // system-wide count.
+    struct sysinfo info{};
+    return sysinfo(&info) == 0 ? static_cast<uint32_t>(info.procs) : 0;
+}
+
+#elif defined(__linux__)
 
 uint32_t monitoring::collect_processes() {
     uint32_t count = 0;
@@ -355,6 +424,7 @@ monitoring::network_sample monitoring::read_network_sample() {
 
     std::ifstream net("/proc/net/dev");
     if (!net) return s;
+    s.valid = true;
 
     std::string line;
     // Skip header lines
@@ -395,6 +465,7 @@ monitoring::network_sample monitoring::read_network_sample() {
 
     struct ifaddrs* addrs = nullptr;
     if (getifaddrs(&addrs) != 0) return s;
+    s.valid = true;
 
     for (auto* ifa = addrs; ifa; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_LINK) continue;
@@ -415,6 +486,10 @@ monitoring::network_sample monitoring::read_network_sample() {
 
 void monitoring::collect_network(nlohmann::json& out) {
     auto cur = read_network_sample();
+    // Without readable counters (Android blocks /proc/net/dev for apps),
+    // omit the section instead of reporting zeros.
+    if (!cur.valid) return;
+
     auto elapsed = std::chrono::duration<double>(cur.timestamp - prev_net_.timestamp).count();
 
     if (elapsed > 0) {

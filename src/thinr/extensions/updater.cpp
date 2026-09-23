@@ -61,6 +61,14 @@ updater::result updater::run(action act, const std::string& channel) {
     r.current = AGENT_VERSION;
     r.arch = AGENT_BINARY_SUFFIX;
 
+#ifdef __ANDROID__
+    // The binary lives in the read-only nativeLibraryDir; updates are
+    // delivered through the Android app package.
+    r.status = "unsupported";
+    r.message = "updates are delivered through the Android app package";
+    return r;
+#endif
+
     spdlog::info("Update check requested (current version: {}, channel: {})", r.current, channel);
 
     // 1. Fetch latest version info from CDN

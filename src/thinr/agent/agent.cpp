@@ -141,8 +141,14 @@ void agent::init_monitoring() {
 }
 
 void agent::init_updater() {
+#ifdef __ANDROID__
+    // Self-update cannot replace the binary inside the read-only
+    // nativeLibraryDir; the APK is the update unit on Android.
+    spdlog::info("Updater extension disabled on Android");
+#else
     spdlog::info("Initializing updater extension");
     updater_.emplace(client_);
+#endif
 }
 
 void agent::init_scripts() {
