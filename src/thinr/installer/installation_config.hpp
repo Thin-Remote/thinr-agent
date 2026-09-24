@@ -45,8 +45,6 @@ public:
     // Log directories
     std::string get_log_directory(bool system_wide) const;
     
-    // Working directories
-    
     // Utility methods
     std::string get_home_directory() const;
     
