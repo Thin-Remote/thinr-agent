@@ -192,11 +192,13 @@ std::string launchd_service_installer::generate_service_file(bool system_wide) {
         plist_content << "    <string>" << username << "</string>\n";
     }
     
-    // Working directory
-    std::string working_dir = config_.get_working_directory(system_wide);
-    plist_content << "    <key>WorkingDirectory</key>\n";
-    plist_content << "    <string>" << working_dir << "</string>\n";
-    
+    // No WorkingDirectory: launchd defaults to "/", and the filesystem
+    // resource resolves "/" through the process's current directory when no
+    // base path is configured. Pointing it at the log directory made a
+    // listing of "/" answer with the logs, which reads as the device's root
+    // and is not. Logs are written through absolute StandardOutPath and
+    // StandardErrorPath below, so nothing here needs a directory of its own.
+
     // Standard output and error (logs)
     std::string log_dir = config_.get_log_directory(system_wide);
     plist_content << "    <key>StandardOutPath</key>\n";

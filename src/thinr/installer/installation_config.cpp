@@ -113,14 +113,6 @@ std::string InstallationConfig::get_log_directory(bool system_wide) const {
     }
 }
 
-std::string InstallationConfig::get_working_directory(bool system_wide) const {
-    if (system_wide) {
-        return "/var/log";
-    } else {
-        return get_home_directory() + "/.local/share/" + std::string(SERVICE_NAME);
-    }
-}
-
 std::string InstallationConfig::get_home_directory() const {
     const char* home = getenv("HOME");
     if (home) {
