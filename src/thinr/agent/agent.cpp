@@ -1,6 +1,8 @@
 #include "agent.hpp"
 #include "../utils/system_info.hpp"
+#include "../utils/ssl_config.hpp"
 #include <spdlog/spdlog.h>
+#include <cstdlib>
 #include <thinger/thinger.h>
 #include <thinger/iotmp/client.hpp>
 #include <thinger/util/logger.hpp>
@@ -16,8 +18,24 @@ agent::agent(const config::DeviceCredentials& credentials)
         throw std::invalid_argument("Invalid device credentials");
     }
 
+    // Make sure a CA trust store is available (system bundle, or embedded
+    // Let's Encrypt roots on minimal devices) before opening the TLS tunnel.
+    utils::SSLConfig::configure_ssl_certificates();
+
     client_.set_host(credentials_.host);
     client_.set_transport(thinger::iotmp::transport_type::WEBSOCKET);
+
+    // TLS server certificate verification for the device tunnel. Enabled by
+    // default; disabled by the persisted `verify_ssl` config flag (set via
+    // `install --no-verify-ssl`) or, at runtime, by the THINR_INSECURE env var.
+    bool verify_tls = credentials_.verify_ssl;
+    if (const char* insecure = std::getenv("THINR_INSECURE"); insecure && *insecure) {
+        verify_tls = false;
+    }
+    if (!verify_tls) {
+        spdlog::warn("TLS certificate verification disabled for the device tunnel (insecure)");
+    }
+    client_.set_verify_ssl(verify_tls);
 
     client_.set_credentials(
         credentials_.device_user,
