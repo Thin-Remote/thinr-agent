@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
+#include <csignal>
 #include <array>
 
 #include <openssl/evp.h>
@@ -47,8 +48,14 @@ updater::updater(thinger::iotmp::client& client) {
         // agent with the new binary.
         if (r.status == "updated") {
             out.after_response([] {
-                spdlog::info("Exiting for restart with updated binary");
-                std::exit(0);
+                spdlog::info("Restarting with the updated binary");
+                // Trigger the normal signal-driven shutdown (workers stop,
+                // client disconnect, extension teardown) rather than
+                // std::exit: this runs on a worker thread while the io_context
+                // threads are still live, and std::exit would run static
+                // destructors underneath them and abort (SIGABRT). A clean
+                // exit lets the init system restart the new binary.
+                std::raise(SIGTERM);
             });
         }
     };
