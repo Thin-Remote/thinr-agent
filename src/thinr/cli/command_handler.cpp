@@ -128,8 +128,9 @@ int command_handler::execute(const ParseResult& parse_result) {
 int command_handler::handle_install(const InstallOptions& options) {
     utils::Console::printSectionHeader("ThinRemote Fast Installation", "🚀");
     
-    // Check if already configured
-    if (config_manager_.exists()) {
+    // Check if already configured. --overwrite with a token re-provisions
+    // the device in place (reinstall, app data restored).
+    if (config_manager_.exists() && !(options.overwrite && !options.token.empty())) {
         std::cout << utils::Console::warning("Configuration already exists.") << "\n";
         std::cout << "Use 'thinr-agent reconfigure' to change configuration.\n";
         std::cout << "Use 'thinr-agent' without arguments to manage the service.\n";
@@ -350,6 +351,12 @@ std::string command_handler::determine_device_name(const std::string& requested,
     }
 
     std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+
+    // Android and minimal containers leave the kernel hostname unset, which
+    // reads back as "localhost": not a useful name for a device.
+    if (name.empty() || name == "localhost") {
+        name = fallback;
+    }
     return name;
 }
 
