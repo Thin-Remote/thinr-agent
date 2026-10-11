@@ -5,9 +5,24 @@
 #include <sstream>
 #include <cstdlib>
 #include <iostream>
+#include <pwd.h>
+#include <grp.h>
 #include <spdlog/spdlog.h>
 
 namespace thinr::installer {
+
+namespace {
+// Primary group name of a user, resolved through the account database
+// (getpwnam -> pw_gid -> getgrgid). Empty if the user is unknown.
+std::string primary_group(const std::string& username) {
+    if (struct passwd* pw = getpwnam(username.c_str())) {
+        if (struct group* gr = getgrgid(pw->pw_gid)) {
+            return std::string(gr->gr_name);
+        }
+    }
+    return {};
+}
+} // namespace
 
 std::string launchd_service_installer::get_service_file_path(bool system_wide) {
     return config_.get_launchd_plist_path(system_wide);
@@ -184,12 +199,19 @@ std::string launchd_service_installer::generate_service_file(bool system_wide) {
     plist_content << "    <key>ProcessType</key>\n";
     plist_content << "    <string>Adaptive</string>\n";
     
-    // User specification for system-wide services
-    if (system_wide && !username.empty()) {
+    // User/group for system-wide services. A LaunchDaemon with no UserName
+    // already runs as root, so for a root install both keys are omitted:
+    // macOS has no "root" group (root's primary group is "wheel"), and
+    // GroupName=root makes launchd reject the job with EX_CONFIG. For any
+    // other user, the group is their real primary group, not the user name.
+    if (system_wide && !username.empty() && username != "root") {
         plist_content << "    <key>UserName</key>\n";
         plist_content << "    <string>" << username << "</string>\n";
-        plist_content << "    <key>GroupName</key>\n";
-        plist_content << "    <string>" << username << "</string>\n";
+        std::string group = primary_group(username);
+        if (!group.empty()) {
+            plist_content << "    <key>GroupName</key>\n";
+            plist_content << "    <string>" << group << "</string>\n";
+        }
     }
     
     // No WorkingDirectory: launchd defaults to "/", and the filesystem
