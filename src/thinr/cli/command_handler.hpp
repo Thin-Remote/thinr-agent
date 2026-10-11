@@ -47,7 +47,7 @@ private:
                                bool no_start);
     bool save_and_install_service(const config::DeviceCredentials& credentials, bool no_start);
     std::string determine_device_id(const std::string& provided_device_id);
-    std::string determine_device_name(const std::string& fallback);
+    std::string determine_device_name(const std::string& requested, const std::string& fallback);
     std::string resolve_product(const std::string& host, const std::string& username,
                                 const std::string& access_token, const std::string& provided_product);
     void seed_default_alarms(const std::string& host, const std::string& username,

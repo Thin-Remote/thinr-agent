@@ -164,7 +164,7 @@ bool command_handler::install_with_token(const InstallOptions& options) {
 
         std::string product_id = resolve_product(host, username, options.token, options.product);
         std::string device_id = determine_device_id(options.device_id);
-        std::string device_name = determine_device_name(device_id);
+        std::string device_name = determine_device_name(options.name, device_id);
 
         return complete_provisioning(host, username, device_id, device_name,
                                      options.token, product_id, options.overwrite, options.no_start);
@@ -196,7 +196,7 @@ bool command_handler::install_interactive(const InstallOptions& options) {
     
     std::string password = read_password_securely();
     std::string final_device_id = determine_device_id(options.device_id);
-    std::string device_name = determine_device_name(final_device_id);
+    std::string device_name = determine_device_name(options.name, final_device_id);
 
     std::cout << utils::Console::loading("Authenticating and provisioning device...") << "\n";
 
@@ -334,9 +334,13 @@ std::string command_handler::determine_device_id(const std::string& provided_dev
     return generated_id;
 }
 
-std::string command_handler::determine_device_name(const std::string& fallback) {
+std::string command_handler::determine_device_name(const std::string& requested, const std::string& fallback) {
+    if (!requested.empty()) {
+        return requested;
+    }
+
     char hostname[256];
-    std::string name = (gethostname(hostname, sizeof(hostname)) == 0) ? hostname : fallback;
+    std::string name = (gethostname(hostname, sizeof(hostname)) == 0) ? hostname : "";
 
     // Remove .local suffix if present
     const std::string local_suffix = ".local";
