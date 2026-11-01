@@ -85,15 +85,13 @@ void agent::stop() {
     proxy_.reset();
     filesystem_.reset();
 
-    // Stop workers - this calls client_.stop() first (via worker_client)
-    // before destroying io_contexts, ensuring proper shutdown order
-    thinger::asio::get_workers().stop();
+    // Stop the IOTMP client: cancels timers, closes the socket and stops its workers
+    client_.stop();
 }
 
 void agent::wait() {
-    // Wait for signals (SIGINT, SIGTERM, etc.)
-    // When signal arrives: workers.stop() -> client_.stop() -> cleanup
-    thinger::asio::get_workers().wait();
+    // Block until a termination signal (SIGINT, SIGTERM, ...) arrives
+    client_.wait();
 }
 
 void agent::init_agent_info() {

@@ -40,7 +40,7 @@ public:
 private:
     config::DeviceCredentials credentials_;
 
-    // IOTMP client (inherits from worker_client)
+    // IOTMP client
     thinger::iotmp::client client_;
 
     // Extensions

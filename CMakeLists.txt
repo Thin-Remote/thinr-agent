@@ -123,22 +123,23 @@ FetchContent_MakeAvailable(spdlog)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-# Pin the IoT transport libraries to reviewed, tested commits instead of
+# Pin the IoT transport libraries to reviewed, tested tags/commits instead of
 # floating on their main branches, so a given agent tag always builds the same
-# stack. Both of these commits add TLS server-certificate verification for the
-# device tunnel (IOTMP enables verify_peer; thinger-http enforces it, including
-# host-name verification, on the WebSocket path). thinger_http is declared by
+# stack. thinger-http v0.9.0 enforces TLS server-certificate verification
+# (including host-name checks) and bounds the connection handshake under a
+# timeout; the IOTMP commit adapts the client to thinger-http 0.9 and drains
+# command output to EOF before returning. thinger_http is declared by
 # thinger_iotmp; declaring it first here wins.
 FetchContent_Declare(
         thinger_http
         GIT_REPOSITORY https://github.com/thinger-io/thinger-http.git
-        GIT_TAG        4354dc3
+        GIT_TAG        v0.9.0
 )
 
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
-        GIT_TAG        bed5417
+        GIT_TAG        cdab6f4
 )
 FetchContent_MakeAvailable(thinger_iotmp)
 
