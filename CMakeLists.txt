@@ -125,21 +125,23 @@ FetchContent_MakeAvailable(json)
 
 # Pin the IoT transport libraries to reviewed, tested tags/commits instead of
 # floating on their main branches, so a given agent tag always builds the same
-# stack. thinger-http v0.9.0 enforces TLS server-certificate verification
-# (including host-name checks) and bounds the connection handshake under a
-# timeout; the IOTMP commit adapts the client to thinger-http 0.9 and drains
-# command output to EOF before returning. thinger_http is declared by
-# thinger_iotmp; declaring it first here wins.
+# stack. thinger-http v0.9.2 enforces TLS server-certificate verification
+# (including host-name checks), bounds the connection handshake under a
+# timeout, and marks its client and listener sockets close-on-exec so child
+# commands do not inherit them. The IOTMP commit adapts the client to
+# thinger-http 0.9, drains command output to EOF before returning, and opens
+# the exec pipes close-on-exec so detached child processes release them.
+# thinger_http is declared by thinger_iotmp; declaring it first here wins.
 FetchContent_Declare(
         thinger_http
         GIT_REPOSITORY https://github.com/thinger-io/thinger-http.git
-        GIT_TAG        v0.9.0
+        GIT_TAG        v0.9.2
 )
 
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
-        GIT_TAG        cdab6f4
+        GIT_TAG        b552e64
 )
 FetchContent_MakeAvailable(thinger_iotmp)
 
