@@ -142,7 +142,7 @@ FetchContent_Declare(
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
-        GIT_TAG        bf230bf
+        GIT_TAG        f649357
 )
 FetchContent_MakeAvailable(thinger_iotmp)
 

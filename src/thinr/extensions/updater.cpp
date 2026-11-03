@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <thinger/http_client.hpp>
 #include <thinger/iotmp/core/iotmp_resource.hpp>
+#include <thinger/iotmp/extensions/cmd/cmd.hpp>
 #include <filesystem>
 #include <fstream>
 #include <cstdio>
@@ -258,19 +259,17 @@ bool updater::download_binary(const std::string& url, const std::string& dest_pa
 }
 
 std::string updater::verify_binary(const std::string& binary_path) {
-    std::string cmd = binary_path + " --version 2>/dev/null";
-    std::array<char, 256> buffer{};
-    std::string output;
+    // Run the downloaded binary's --version through the shared command
+    // executor: it bounds the probe with a timeout (a hung binary cannot
+    // block the updater) and closes the descriptors the child would otherwise
+    // inherit from the daemon.
+    constexpr int VERIFY_TIMEOUT_SECONDS = 10;
+    std::string output, err;
+    bool timed_out = false;
+    int exit_code = thinger::iotmp::cmd::exec(
+        binary_path, {"--version"}, output, err, "", VERIFY_TIMEOUT_SECONDS, &timed_out);
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return {};
-
-    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-        output += buffer.data();
-    }
-
-    int status = pclose(pipe);
-    if (status != 0) return {};
+    if (timed_out || exit_code != 0) return {};
 
     // Parse "thinr-agent version <VERSION>"
     const std::string prefix = "thinr-agent version ";
