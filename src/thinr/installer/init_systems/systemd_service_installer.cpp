@@ -177,6 +177,9 @@ std::string systemd_service_installer::generate_service_file(bool system_wide) {
     service_content << "Description=" << InstallationConfig::SERVICE_DESCRIPTION << "\n";
     service_content << "After=network.target\n";
     service_content << "Wants=network.target\n";
+    // Never rate-limit restarts: the update watchdog relies on prompt restarts
+    // to confirm a new binary or revert a crash-looping one.
+    service_content << "StartLimitIntervalSec=0\n";
     service_content << "\n";
     service_content << "[Service]\n";
     service_content << "Type=simple\n";

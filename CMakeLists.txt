@@ -131,7 +131,11 @@ FetchContent_MakeAvailable(json)
 # commands do not inherit them. The IOTMP commit adapts the client to
 # thinger-http 0.9, drains command output to EOF before returning, and closes
 # the descriptors a spawned command would otherwise inherit so a worker it
-# detaches does not keep the exec pipe open on kernels without close_range.
+# detaches does not keep the exec pipe open on kernels without close_range. The
+# a960039 revision also reports a transport failure during authentication as
+# AUTH_FAILED with reason "io_error" (distinct from a real server rejection) and
+# exposes the active stream-session count, both of which the agent's rollback
+# watchdog and activity-aware update deferral depend on.
 # thinger_http is declared by thinger_iotmp; declaring it first here wins.
 FetchContent_Declare(
         thinger_http
@@ -142,7 +146,7 @@ FetchContent_Declare(
 FetchContent_Declare(
         thinger_iotmp
         GIT_REPOSITORY https://github.com/thinger-io/IOTMP-Linux.git
-        GIT_TAG        f649357
+        GIT_TAG        a960039
 )
 FetchContent_MakeAvailable(thinger_iotmp)
 
@@ -208,4 +212,37 @@ if(BIN_EXTENSION)
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}.${CMAKE_SYSTEM_PROCESSOR}")
     message(STATUS "Binary name is ${PROJECT_NAME}.${CMAKE_SYSTEM_PROCESSOR}")
   endif()
+endif()
+
+# ---- Unit tests (opt-in; OFF by default so release/fleet builds are untouched) ----
+option(BUILD_TESTS "Build unit tests (Catch2)" OFF)
+if(BUILD_TESTS)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.5.4
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    file(GLOB TEST_SOURCES "tests/*.cpp")
+
+    # The test target compiles only the pure modules (no IOTMP client), so the
+    # decision logic can be exercised without network or a real clock.
+    add_executable(thinr-tests
+        ${TEST_SOURCES}
+        src/thinr/update/update_marker.cpp
+        src/thinr/update/watchdog_core.cpp
+        src/thinr/update/update_settings.cpp
+        src/thinr/update/manifest.cpp
+        src/thinr/utils/atomic_file.cpp
+    )
+    target_include_directories(thinr-tests PRIVATE src)
+    target_link_libraries(thinr-tests PRIVATE
+        Catch2::Catch2WithMain
+        nlohmann_json::nlohmann_json
+        $<$<BOOL:${ENABLE_OPENSSL}>:OpenSSL::Crypto>
+    )
+
+    enable_testing()
+    add_test(NAME thinr-tests COMMAND thinr-tests)
 endif()

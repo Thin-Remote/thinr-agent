@@ -97,6 +97,7 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
                 ("name", po::value<std::string>(&result.install_options.name), "human-readable device name (default: hostname)")
                 ("product", po::value<std::string>(&result.install_options.product), "product to associate (default: auto-detect or create 'thinremote')")
                 ("host", po::value<std::string>(&result.install_options.host)->default_value("backend.thinger.io"), "Thinger.io server host")
+                ("update-policy", po::value<std::string>(&result.install_options.update_policy), "update policy: auto (default) or managed")
                 ("overwrite", po::bool_switch(&result.install_options.overwrite), "auto-overwrite existing device (no conflict prompt)")
                 ("no-start", po::bool_switch(&result.install_options.no_start), "install but don't start service immediately")
                 ("no-verify-ssl", po::bool_switch(&result.install_options.no_verify_ssl), "disable SSL certificate verification");
@@ -140,7 +141,9 @@ ParseResult argument_parser::parse(int argc, char* argv[]) {
             update_desc.add_options()
                 ("help,h", "show help for update command")
                 ("channel", po::value<std::string>(&result.update_options.channel)->default_value("latest"), "release channel (latest, main, develop)")
-                ("apply", po::bool_switch(&result.update_options.apply), "download and install the update (default: check only)");
+                ("policy", po::value<std::string>(&result.update_options.policy), "set update policy: auto or managed")
+                ("apply", po::bool_switch(&result.update_options.apply), "download and install the update (default: check only)")
+                ("now", po::bool_switch(&result.update_options.now), "apply immediately, ignoring staged rollout and session deferral");
 
             po::variables_map update_vm;
             po::store(po::command_line_parser(sub_args)
@@ -224,6 +227,7 @@ void argument_parser::show_install_help() const {
     std::cout << "  --name NAME      Human-readable device name (default: hostname)\n";
     std::cout << "  --product ID     Product to associate (default: auto-detect or create 'thinremote')\n";
     std::cout << "  --host HOST      Thinger.io server (default: backend.thinger.io)\n";
+    std::cout << "  --update-policy  Update policy: auto (default) or managed (no self-updates)\n";
     std::cout << "  --overwrite      Auto-overwrite existing device\n";
     std::cout << "  --no-start       Install but don't start service\n";
     std::cout << "  --no-verify-ssl  Disable SSL certificate verification\n";
@@ -243,12 +247,15 @@ void argument_parser::show_update_help() const {
     std::cout << "Without --apply the command only reports whether an update is available.\n\n";
     std::cout << "Options:\n";
     std::cout << "  --channel NAME   Release channel: latest (stable), main, develop (default: latest)\n";
+    std::cout << "  --policy NAME    Set the update policy: auto or managed (persisted, then exits)\n";
     std::cout << "  --apply          Download and install the update (otherwise check only)\n";
+    std::cout << "  --now            Apply immediately, ignoring staged rollout and session deferral\n";
     std::cout << "  -h, --help       Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  thinr-agent update                     # Check for updates in the latest channel\n";
-    std::cout << "  thinr-agent update --apply             # Apply the update if one is available\n";
-    std::cout << "  thinr-agent update --channel main      # Check the main channel\n";
+    std::cout << "  thinr-agent update --now               # Apply right now if a different version is out\n";
+    std::cout << "  thinr-agent update --policy managed    # Turn off automatic updates on this device\n";
+    std::cout << "  thinr-agent update --policy auto       # Re-enable automatic updates\n";
     std::cout << "  thinr-agent update --channel develop --apply\n";
 }
 

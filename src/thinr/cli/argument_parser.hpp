@@ -15,6 +15,7 @@ struct InstallOptions {
     std::string name;
     std::string product;
     std::string host = "backend.thinger.io";
+    std::string update_policy;  // "auto" | "managed"; empty = default (auto)
     bool overwrite = false;
     bool no_start = false;
     bool no_verify_ssl = false;
@@ -22,7 +23,9 @@ struct InstallOptions {
 
 struct UpdateOptions {
     std::string channel = "latest";
+    std::string policy;  // "auto" | "managed"; empty = don't change
     bool apply = false;  // false = check only, true = download and install
+    bool now = false;    // apply immediately, ignoring soak/ramp and deferral
 };
 
 struct BootstrapOptions {

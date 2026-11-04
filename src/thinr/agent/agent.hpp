@@ -14,12 +14,18 @@
 #include "../extensions/monitoring.hpp"
 #include "../extensions/updater.hpp"
 #include "../extensions/scripts.hpp"
+#include "../runtime/client_state_dispatcher.hpp"
+#include "../runtime/update_watchdog.hpp"
+#include "../runtime/update_poller.hpp"
 
 namespace thinr::agent {
 
 class agent {
 public:
-    explicit agent(const config::DeviceCredentials& credentials);
+    // `config_path` is the config file the agent runs with (respecting
+    // --config); the watchdog marker lives in its directory. Empty uses the
+    // default location.
+    explicit agent(const config::DeviceCredentials& credentials, std::string config_path = "");
     ~agent();
 
     // Rule of 5 - disable copy/move for simplicity
@@ -42,6 +48,21 @@ private:
 
     // IOTMP client
     thinger::iotmp::client client_;
+
+    // Single owner of the client's state callback; fans state out to the
+    // watchdog, the update poller and any other observer. Declared before the
+    // extensions so it outlives their subscriptions.
+    std::optional<thinr::runtime::client_state_dispatcher> state_dispatcher_;
+
+    // Directory holding the watchdog marker (the config directory).
+    std::string state_dir_;
+
+    // Per-device rollback watchdog (declared after the dispatcher so its
+    // subscription is removed before the dispatcher goes away).
+    std::optional<thinr::runtime::update_watchdog> watchdog_;
+
+    // Automatic update poll loop (absent on Android).
+    std::optional<thinr::runtime::update_poller> poller_;
 
     // Extensions
     std::optional<thinger::iotmp::terminal> shell_;

@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <thinger/http_client.hpp>
 #include <thinger/iotmp/core/iotmp_resource.hpp>
+#include <thinger/iotmp/core/iotmp_stream_session.hpp>
 #include <thinger/iotmp/extensions/cmd/cmd.hpp>
 #include <filesystem>
 #include <fstream>
@@ -9,8 +10,17 @@
 #include <cstdlib>
 #include <csignal>
 #include <array>
+#include <atomic>
+#include <ctime>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <openssl/evp.h>
+
+#include "../update/update_marker.hpp"
+#include "../utils/atomic_file.hpp"
+#include "../config/config_manager.hpp"
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -18,6 +28,19 @@
 #endif
 
 namespace thinr::extensions {
+
+namespace {
+
+// fsync a directory so a rename inside it is durable across a power cut.
+void fsync_dir(const std::string& dir) {
+    int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+    if (fd >= 0) {
+        ::fsync(fd);
+        ::close(fd);
+    }
+}
+
+} // namespace
 
 updater::updater(thinger::iotmp::client& client) {
     client["update"] = [](thinger::iotmp::input& in, thinger::iotmp::output& out) {
@@ -36,7 +59,9 @@ updater::updater(thinger::iotmp::client& client) {
         auto action_str = thinger::iotmp::get_value(in.payload(), "action", std::string("check"));
         action act = (action_str == "apply") ? action::apply : action::check;
 
-        result r = run(act, channel);
+        // The update resource (and the playbooks that drive it) apply
+        // immediately, like an explicit operator action.
+        result r = run(act, channel, update_origin::iotmp);
 
         out["status"] = r.status;
         out["current"] = r.current;
@@ -44,27 +69,17 @@ updater::updater(thinger::iotmp::client& client) {
         out["arch"] = r.arch;
         out["message"] = r.message;
 
-        // Exit AFTER the response is sent so the caller sees the ack instead
-        // of a connection-reset / timeout. The init system will restart the
-        // agent with the new binary.
+        // Restart AFTER the response is sent so the caller sees the ack instead
+        // of a connection reset. The init system brings up the new binary.
         if (r.status == "updated") {
-            out.after_response([] {
-                spdlog::info("Restarting with the updated binary");
-                // Trigger the normal signal-driven shutdown (workers stop,
-                // client disconnect, extension teardown) rather than
-                // std::exit: this runs on a worker thread while the io_context
-                // threads are still live, and std::exit would run static
-                // destructors underneath them and abort (SIGABRT). A clean
-                // exit lets the init system restart the new binary.
-                std::raise(SIGTERM);
-            });
+            out.after_response([] { restart_into_new_binary(); });
         }
     };
 
     spdlog::info("Updater extension initialized (binary suffix: {})", AGENT_BINARY_SUFFIX);
 }
 
-updater::result updater::run(action act, const std::string& channel) {
+updater::result updater::run(action act, const std::string& channel, update_origin origin) {
     result r;
     r.current = AGENT_VERSION;
     r.arch = AGENT_BINARY_SUFFIX;
@@ -113,84 +128,31 @@ updater::result updater::run(action act, const std::string& channel) {
         return r;
     }
 
-    // 4. Build download URL and download
-    std::string download_url = std::string(CDN_BASE_URL) +
-                               "/binaries/" + channel + "/thinr-agent." + AGENT_BINARY_SUFFIX;
-    std::string temp_path = "/tmp/thinr-agent-update";
+    // 4. Hand the actual swap to the single watchdog-guarded apply path.
+    apply_request req;
+    req.version = latest.version;
+    req.channel = channel;
+    req.url = std::string(CDN_BASE_URL) + "/binaries/" + channel + "/thinr-agent." + AGENT_BINARY_SUFFIX;
+    req.checksum = latest.checksum;
+    req.state_dir = default_state_dir();
+    req.origin = origin;
+    req.rollback_deadline_s = 90;
 
-    spdlog::info("Downloading update from: {}", download_url);
-
-    if (!download_binary(download_url, temp_path)) {
-        r.status = "error";
-        r.message = "Failed to download update binary";
-        return r;
-    }
-
-    // 5. Verify downloaded binary
-    if (!latest.checksum.empty()) {
-        // Checksum available: verify integrity via SHA256
-        std::string actual_hash = "sha256:" + compute_sha256(temp_path);
-        if (actual_hash != latest.checksum) {
-            spdlog::error("Checksum mismatch: expected={}, actual={}", latest.checksum, actual_hash);
-            std::filesystem::remove(temp_path);
+    apply_result ar = apply_with_watchdog(req);
+    switch (ar.st) {
+        case apply_result::status::updated:
+            r.status = "updated";
+            r.message = "Update applied. Restarting...";
+            break;
+        case apply_result::status::deferred:
+            r.status = "deferred";
+            r.message = ar.message.empty() ? ar.reason : ar.message;
+            break;
+        case apply_result::status::error:
             r.status = "error";
-            r.message = "Checksum verification failed";
-            return r;
-        }
-        spdlog::info("Checksum verified: {}", latest.checksum);
-    } else {
-        // No checksum: fallback to executing --version to verify it's a valid binary
-        std::filesystem::permissions(temp_path,
-            std::filesystem::perms::owner_exec | std::filesystem::perms::owner_read |
-            std::filesystem::perms::group_exec | std::filesystem::perms::group_read,
-            std::filesystem::perm_options::add);
-
-        std::string downloaded_version = verify_binary(temp_path);
-        if (downloaded_version.empty()) {
-            spdlog::error("Downloaded binary verification failed (no checksum available)");
-            std::filesystem::remove(temp_path);
-            r.status = "error";
-            r.message = "Downloaded binary failed verification";
-            return r;
-        }
-        spdlog::info("Binary verified via --version: {}", downloaded_version);
+            r.message = ar.message.empty() ? ar.reason : ar.message;
+            break;
     }
-
-    // 6. Get current binary path and replace
-    std::string install_path = get_current_binary_path();
-    spdlog::info("Replacing binary at: {}", install_path);
-
-    // Remove running binary first (Linux allows deleting a busy executable,
-    // the process keeps running via its open file descriptor)
-    std::error_code ec;
-    std::filesystem::remove(install_path, ec);
-    if (ec) {
-        spdlog::error("Failed to remove current binary: {}", ec.message());
-    }
-
-    ec.clear();
-    std::filesystem::copy_file(temp_path, install_path, ec);
-
-    // Clean up temp file
-    std::filesystem::remove(temp_path);
-
-    if (ec) {
-        spdlog::error("Failed to replace binary: {}", ec.message());
-        r.status = "error";
-        r.message = std::string("Failed to replace binary: ") + ec.message();
-        return r;
-    }
-
-    // 7. Ensure executable permissions on installed binary
-    std::filesystem::permissions(install_path,
-        std::filesystem::perms::owner_exec | std::filesystem::perms::owner_read |
-        std::filesystem::perms::group_exec | std::filesystem::perms::group_read |
-        std::filesystem::perms::others_exec | std::filesystem::perms::others_read,
-        std::filesystem::perm_options::add);
-
-    spdlog::info("Update successful: {} -> {}", r.current, latest.version);
-    r.status = "updated";
-    r.message = "Update applied. Restarting...";
     return r;
 }
 
@@ -337,6 +299,226 @@ std::string updater::get_current_binary_path() {
 #endif
 
     return "./thinr-agent";
+}
+
+std::string updater::default_state_dir() {
+    thinr::config::config_manager cm;
+    return std::filesystem::path(cm.get_config_path()).parent_path().string();
+}
+
+std::optional<thinr::update::manifest> updater::fetch_manifest(const std::string& channel) {
+    std::string url = std::string(CDN_BASE_URL) + "/" + channel + ".json";
+    try {
+        thinger::http::client client;
+        client.timeout(std::chrono::seconds(HTTP_TIMEOUT_SECONDS))
+              .verify_ssl(true)
+              .user_agent("ThinRemote/" AGENT_VERSION);
+        auto res = client.get(url);
+        if (res.has_error() || res.status() != 200) {
+            spdlog::warn("Manifest fetch failed for channel {}", channel);
+            return std::nullopt;
+        }
+        return thinr::update::manifest::parse(res.body());
+    } catch (const std::exception& e) {
+        spdlog::error("Failed to fetch manifest: {}", e.what());
+        return std::nullopt;
+    }
+}
+
+std::string updater::binary_url(const std::string& channel) {
+    return std::string(CDN_BASE_URL) + "/binaries/" + channel + "/thinr-agent." + AGENT_BINARY_SUFFIX;
+}
+
+void updater::restart_into_new_binary() {
+    spdlog::info("Restarting with the updated binary");
+    // Normal signal-driven shutdown (workers stop, client disconnect, extension
+    // teardown) rather than std::exit, which would run static destructors under
+    // live io threads and abort. The init system restarts the new binary.
+    std::raise(SIGTERM);
+}
+
+std::optional<thinr::update::reverted_info> updater::last_reverted(const std::string& state_dir) {
+    const std::string path =
+        (std::filesystem::path(state_dir) / thinr::update::UPDATE_REVERTED_FILE).string();
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return std::nullopt;
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return thinr::update::reverted_info::parse(content);
+}
+
+updater::apply_result updater::apply_with_watchdog(const apply_request& req) {
+    using thinr::update::update_marker;
+    using thinr::update::update_phase;
+    namespace fs = std::filesystem;
+
+    apply_result r;
+
+#ifdef __ANDROID__
+    r.st = apply_result::status::error;
+    r.reason = "unsupported";
+    r.message = "updates are delivered through the Android app package";
+    return r;
+#else
+    if (req.version.empty()) {
+        r.st = apply_result::status::error;
+        r.reason = "error";
+        r.message = "empty target version";
+        return r;
+    }
+
+    // Only one apply at a time in this process.
+    static std::atomic<bool> in_progress{false};
+    bool expected = false;
+    if (!in_progress.compare_exchange_strong(expected, true)) {
+        r.st = apply_result::status::error;
+        r.reason = "busy";
+        r.message = "another update is already in progress";
+        return r;
+    }
+    struct release_guard {
+        std::atomic<bool>& flag;
+        ~release_guard() { flag.store(false); }
+    } releaser{in_progress};
+
+    const std::string state_file =
+        (fs::path(req.state_dir) / thinr::update::UPDATE_STATE_FILE).string();
+
+    // A marker already on disk means a swap is waiting for a restart (or a
+    // rollback report is still owed): refuse a second swap until it clears.
+    if (fs::exists(state_file)) {
+        r.st = apply_result::status::error;
+        r.reason = "restart_pending";
+        r.message = "a previous update is pending a restart";
+        return r;
+    }
+
+    // Activity gate: only the automatic poll defers on an open interactive
+    // session. The CLI and the orchestrated action apply immediately.
+    auto sessions_busy = [] { return thinger::iotmp::stream_session::active_count() > 0; };
+    if (req.origin == update_origin::auto_poll && sessions_busy()) {
+        r.st = apply_result::status::deferred;
+        r.reason = "sessions_active";
+        r.message = "deferred: interactive session in progress";
+        return r;
+    }
+
+    const std::string install_path = get_current_binary_path();
+    const std::string temp_path = install_path + ".new";
+    const std::string prev_path = install_path + ".prev";
+    std::error_code ec;
+
+    spdlog::info("Applying update {} -> {} (channel {}, origin {})",
+                 std::string(AGENT_VERSION), req.version, req.channel,
+                 static_cast<int>(req.origin));
+
+    // 1. Download next to install_path (same filesystem, so the swap rename is atomic).
+    if (!download_binary(req.url, temp_path)) {
+        fs::remove(temp_path, ec);
+        r.reason = "download";
+        r.message = "failed to download the update binary";
+        return r;
+    }
+
+    // 2. Verify the checksum when the manifest carries one.
+    if (!req.checksum.empty()) {
+        std::string actual = "sha256:" + compute_sha256(temp_path);
+        if (actual != req.checksum) {
+            spdlog::error("Checksum mismatch: expected={}, actual={}", req.checksum, actual);
+            fs::remove(temp_path, ec);
+            r.reason = "checksum";
+            r.message = "checksum verification failed";
+            return r;
+        }
+        spdlog::info("Checksum verified: {}", req.checksum);
+    }
+
+    // 3. Make it executable.
+    fs::permissions(temp_path,
+        fs::perms::owner_exec | fs::perms::owner_read |
+        fs::perms::group_exec | fs::perms::group_read |
+        fs::perms::others_exec | fs::perms::others_read,
+        fs::perm_options::add, ec);
+
+    // 4. Preflight: it must run and report a version. A mismatch is logged (the
+    //    main/develop channels use non-release version strings) but, with a
+    //    verified checksum, the binary is the one the manifest describes.
+    std::string probed = verify_binary(temp_path);
+    if (probed.empty()) {
+        fs::remove(temp_path, ec);
+        r.reason = "preflight";
+        r.message = "downloaded binary failed the --version preflight";
+        return r;
+    }
+    if (probed != req.version) {
+        spdlog::warn("Preflight version mismatch: manifest {}, binary reports {}", req.version, probed);
+    }
+
+    // 5. Re-check activity right before the irreversible steps (auto only).
+    if (req.origin == update_origin::auto_poll && sessions_busy()) {
+        fs::remove(temp_path, ec);
+        r.st = apply_result::status::deferred;
+        r.reason = "sessions_active";
+        r.message = "deferred: interactive session in progress";
+        return r;
+    }
+
+    // 6. Back up the current (good) binary to .prev via an atomic rename.
+    const std::string prev_tmp = prev_path + ".tmp";
+    fs::remove(prev_tmp, ec);
+    fs::copy_file(install_path, prev_tmp, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        fs::remove(temp_path, ec);
+        r.reason = (ec == std::errc::no_space_on_device) ? "no_space" : "prev_failed";
+        r.message = "failed to back up the current binary: " + ec.message();
+        return r;
+    }
+    fs::rename(prev_tmp, prev_path, ec);
+    if (ec) {
+        fs::remove(prev_tmp, ec);
+        fs::remove(temp_path, ec);
+        r.reason = "prev_failed";
+        r.message = "failed to stage the backup: " + ec.message();
+        return r;
+    }
+
+    // 7. Write the pending marker (atomic) before the swap, so a crash between
+    //    here and the rename is recoverable at the next start.
+    update_marker m;
+    m.phase = update_phase::pending;
+    m.from = AGENT_VERSION;
+    m.to = req.version;
+    m.prev_binary = prev_path;
+    m.started_at = static_cast<int64_t>(::time(nullptr));
+    m.attempts = 0;
+    m.deadline_s = req.rollback_deadline_s > 0 ? req.rollback_deadline_s : 90;
+    m.report_attempts = 0;
+    if (!thinr::utils::write_atomic(state_file, m.dump(), 0644)) {
+        fs::remove(prev_path, ec);
+        fs::remove(temp_path, ec);
+        r.reason = "marker_failed";
+        r.message = "failed to write the update marker";
+        return r;
+    }
+
+    // 8. Swap atomically: install_path is never truncated, so a power cut here
+    //    leaves either the old or the new binary whole.
+    fs::rename(temp_path, install_path, ec);
+    if (ec) {
+        fs::remove(state_file, ec);
+        fs::remove(prev_path, ec);
+        fs::remove(temp_path, ec);
+        r.reason = "swap_failed";
+        r.message = "failed to swap the binary: " + ec.message();
+        return r;
+    }
+    fsync_dir(fs::path(install_path).parent_path().string());
+
+    spdlog::info("Update staged: {} -> {}; pending watchdog confirmation", std::string(AGENT_VERSION), req.version);
+    r.st = apply_result::status::updated;
+    r.reason = "ok";
+    r.message = std::string("update applied: ") + AGENT_VERSION + " -> " + req.version;
+    return r;
+#endif
 }
 
 } // namespace thinr::extensions

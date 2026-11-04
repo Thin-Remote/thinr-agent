@@ -51,6 +51,7 @@ curl -fsSL https://get.thinremote.io/install.sh | sh -s -- install --host thin.c
 - **File System**: Remote file browsing, upload, and download
 - **Remote Commands**: Execute commands on devices remotely
 - **Custom Scripts**: CGI-like scripting extension — drop executable scripts in a folder and they become remote-accessible resources
+- **Modbus TCP and RTU**: Read and write Modbus slaves on the local network or a serial bus, configured remotely and exposed as device resources
 - **Reverse Proxy**: Access local device services through the platform
 - **Self-Update**: Remote over-the-air updates with SHA256 verification
 - **Multi-Platform**: Native support for Linux (all distributions) and macOS
@@ -188,6 +189,104 @@ INPUT=$(cat)
 NAME=$(echo "$INPUT" | jq -r '.name // "world"')
 echo "{\"greeting\": \"Hello, $NAME!\"}"
 ```
+
+### Modbus
+
+The agent can poll Modbus slaves on its network (Modbus TCP) or on a serial bus (Modbus RTU over RS-485/RS-232): PLCs, energy meters, inverters, drives, gateways… Devices are declared in the `modbus` section of the device's `config` property, which can be set per device or as a product property default, and applied live:
+
+```json
+{
+  "modbus": {
+    "devices": {
+      "meter": {
+        "host": "192.168.1.50",
+        "port": 502,
+        "unit": 1,
+        "timeout": 1000,
+        "points": {
+          "voltage":  { "table": "input", "address": 0, "type": "float32" },
+          "energy":   { "table": "holding", "address": 10, "type": "uint32", "order": "CDAB", "scale": 0.01 },
+          "setpoint": { "table": "holding", "address": 100, "type": "int16", "scale": 0.1, "writable": true },
+          "relay":    { "table": "coil", "address": 0, "writable": true }
+        }
+      },
+      "drive": {
+        "serial": "/dev/ttyUSB0",
+        "baudrate": 19200,
+        "parity": "E",
+        "unit": 3,
+        "points": {
+          "frequency": { "address": 1, "type": "float32" }
+        }
+      }
+    }
+  }
+}
+```
+
+Each device is exposed as:
+
+- `modbus/<device>`: reads every point and returns `{point: value}`. Use it as the source of a product bucket to store the values periodically.
+- `modbus/<device>/write`: present when the device has writable points. Takes `{point: value}`; all values are validated before anything is written. A `null` value leaves that point unchanged, and the resource's input template lists every writable point as `null`, so sending the template back as is writes nothing.
+
+Point fields:
+
+| Field | Values | Default |
+|-------|--------|---------|
+| `table` | `coil`, `discrete`, `holding`, `input` | `holding` |
+| `address` | 0-based protocol address (register 40001 is `0`) | required |
+| `type` | `bool`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`, `float32`, `float64`, `string` | `bool` for coils and discrete inputs, `uint16` otherwise |
+| `order` | `ABCD` (big endian), `CDAB` (low word first), `BADC` (bytes swapped), `DCBA` | `ABCD` |
+| `scale`, `offset` | value = raw × scale + offset (inverted on write) | `1`, `0` |
+| `bit` | 0-15: a `bool` stored in one bit of a register (read-only) | |
+| `length` | registers spanned by a `string` | |
+| `writable` | only coils and holding registers | `false` |
+
+Device fields:
+
+| Field | Meaning | Default |
+|-------|---------|---------|
+| `host`, `port` | Modbus TCP endpoint. Devices sharing them share one connection | `host` required for TCP, `502` |
+| `serial` | serial port of a Modbus RTU bus, e.g. `/dev/ttyUSB0` (prefer the stable `/dev/serial/by-id/…` names). It must resolve to a serial (tty) character device under `/dev`; anything else is refused before it is opened. All devices on a port, whatever name they use for it, share it and must use the same line settings | required for RTU |
+| `baudrate`, `parity`, `data_bits`, `stop_bits` | RTU line settings; `parity` is `N`, `E` or `O` | `9600`, `N`, `8`, `1` |
+| `transport` | `tcp` or `rtu` | `rtu` when `serial` is set, `tcp` otherwise |
+| `unit` | unit id (slave address): 1-247 on a serial bus | `1` |
+| `timeout` | per request, in ms | `1000` |
+| `max_gap` | unused addresses a single read may span to merge neighbouring points (keep `0` for slaves that reject reads of unmapped addresses) | `0` |
+| `interval` | seconds between pushes on `modbus/data` (`0`: not pushed) | `0` |
+| `id`, `model` | sent along with the pushed data, to name and classify the device on the platform | |
+
+Up to 128 devices are accepted; the rest are reported as configuration errors in `$modbus/status`.
+
+#### Devices as subdevices
+
+Devices with an `interval` are read periodically and pushed as events on the `modbus/data` resource, while the server listens to it:
+
+```json
+{ "device": "meter", "id": "aem310_SN000123", "model": "AEM310-MID", "values": { "voltage": 230.5 } }
+```
+
+A flow in the gateway's product can turn each Modbus device into a platform subdevice with its own product, buckets and alarms: source `modbus/data` (resource, update on events), a `device_id_resolver` such as
+
+```js
+function resolveSubdevice(payload, ctx) {
+    return payload.id || ctx.device + '_' + payload.device;
+}
+```
+
+and a `resource_stream` sink with payload `{{payload.values}}`. Products of the subdevices autoprovision them by id pattern (e.g. `^aem310_.*`), so a model prefix in `id` picks the product, as plugin devices do. The subdevice gets the gateway as its parent.
+
+#### Commissioning tools
+
+These resources let a person or an AI agent explore a Modbus network and build the configuration from what it finds. Tools that address a slave take either `device` (a configured one), `host`, `port` and `unit`, or `serial`, its line settings and `unit`. On a serial port used by configured devices, a tool without line settings uses theirs, and its requests take turns with theirs on the port. A `null` field counts as absent, which is how the input templates mark optional fields:
+
+- `$modbus/scan`: without input, finds the hosts of the local networks listening on port 502 (`network` and `port` narrow it) and lists the serial ports. With `host` or `serial`, lists the unit ids answering there (`unit_from`, `unit_to`, 1-16 by default), e.g. the slaves behind a gateway or on a bus. With `serial` and `"detect": true`, also finds the bus line settings by trying the usual baud rates and parities against units 1-5 (or the given range); it needs the port not to be in use by configured devices. In a detection, `baudrate` and `parity` are filters: when given (not `null`), only that baud rate or parity is tried.
+  - `timeout` (50-2000 ms, `300` by default) is how long each probe waits for an answer.
+  - A scan answers within 20 seconds. When the work does not fit, it returns what it found so far with `"partial": true` and a `resume` object: send the same request again with those fields added to continue (`unit_from` for a unit scan, `start_baudrate` and `start_parity` for a detection, which also lists the settings already `tried`). A request that could not progress at all (a network scan or one detection step longer than 20 seconds) is refused with a hint to narrow it.
+- `$modbus/identify`: reads the standard identification objects (vendor, product code, revision, model name…) when the slave supports them (function 43).
+- `$modbus/read`: raw read of `count` coils or registers from `table` and `address`.
+- `$modbus/probe`: reads up to 16 registers and decodes them as every type and byte order, to recognise how a value is encoded.
+- `$modbus/status`: each configured device's endpoint, points, last successful read and last error, or why its configuration was rejected.
 
 ### Monitored Metrics
 

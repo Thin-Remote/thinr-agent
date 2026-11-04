@@ -1,7 +1,9 @@
 #include "config_manager.hpp"
+#include "../utils/atomic_file.hpp"
 #include <fstream>
 #include <iostream>
 #include <iomanip>
+#include <mutex>
 #include <spdlog/spdlog.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -11,6 +13,15 @@
 #include <unistd.h>
 
 namespace thinr::config {
+
+namespace {
+// Serializes config writes within this process (CLI vs daemon are separate
+// short-lived processes; this guards concurrent writers inside one process).
+std::mutex& file_mutex() {
+    static std::mutex m;
+    return m;
+}
+} // namespace
 
 config_manager::config_manager() {
     // Try system-wide config first, fall back to user config
@@ -70,30 +81,73 @@ void config_manager::save(const DeviceCredentials& credentials) {
     if (!credentials.is_valid()) {
         throw std::invalid_argument("Invalid device credentials");
     }
-    
+
+    std::lock_guard<std::mutex> lock(file_mutex());
     ensure_config_directory();
-    
-    nlohmann::json config = {
-        {"host", credentials.host},
-        {"device", {
-            {"id", credentials.device_id},
-            {"name", credentials.device_name},
-            {"user", credentials.device_user},
-            {"token", credentials.device_token}  // Will be encrypted
-        }},
-        {"version", credentials.version.empty() ? "1.0.0" : credentials.version},
-        {"verify_ssl", credentials.verify_ssl}
+
+    // Read-modify-write: keep any `update` section and unknown keys. A corrupt
+    // file is replaced (credentials must always be storable).
+    nlohmann::json config;
+    try {
+        config = read_raw();
+    } catch (const std::exception&) {
+        config = nlohmann::json::object();
+    }
+
+    config["host"] = credentials.host;
+    config["device"] = {
+        {"id", credentials.device_id},
+        {"name", credentials.device_name},
+        {"user", credentials.device_user},
+        {"token", encrypt_token(credentials.device_token)},
     };
-    
-    encrypt_and_save(config);
-    
-    // Set proper permissions (600 - read/write for owner only)
-    std::filesystem::permissions(config_path_, 
-                               std::filesystem::perms::owner_read | 
-                               std::filesystem::perms::owner_write,
-                               std::filesystem::perm_options::replace);
-    
+    config["version"] = credentials.version.empty() ? "1.0.0" : credentials.version;
+    config["verify_ssl"] = credentials.verify_ssl;
+
+    write_raw(config);
     spdlog::info("Configuration saved to: {}", config_path_);
+}
+
+nlohmann::json config_manager::read_raw() const {
+    if (!std::filesystem::exists(config_path_)) {
+        return nlohmann::json::object();
+    }
+    std::ifstream file(config_path_);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open config file for reading: " + config_path_);
+    }
+    nlohmann::json config = nlohmann::json::parse(file, nullptr, false);
+    if (config.is_discarded() || !config.is_object()) {
+        throw std::runtime_error("Corrupt config file: " + config_path_);
+    }
+    return config;
+}
+
+void config_manager::write_raw(const nlohmann::json& config) {
+    ensure_config_directory();
+    if (!thinr::utils::write_atomic(config_path_, config.dump(2), 0600)) {
+        throw std::runtime_error("Failed to write config file: " + config_path_);
+    }
+}
+
+nlohmann::json config_manager::read_update_section() const {
+    try {
+        nlohmann::json config = read_raw();
+        if (config.contains("update")) return config["update"];
+    } catch (const std::exception& e) {
+        spdlog::warn("Ignoring update section: {}", e.what());
+    }
+    return nlohmann::json::object();
+}
+
+void config_manager::write_update_section(const nlohmann::json& update_obj) {
+    std::lock_guard<std::mutex> lock(file_mutex());
+    if (!std::filesystem::exists(config_path_)) {
+        throw std::runtime_error("Config file does not exist: " + config_path_);
+    }
+    nlohmann::json config = read_raw();  // throws on corrupt: refuse to clobber
+    config["update"] = update_obj;
+    write_raw(config);
 }
 
 DeviceCredentials config_manager::load() {

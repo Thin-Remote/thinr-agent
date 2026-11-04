@@ -1,0 +1,50 @@
+name: Panic rollback
+
+# Manual fleet-wide rollback: re-point the stable `latest` channel at a
+# previously archived stable release. Devices in auto mode apply on
+# current != latest, so already-updated devices downgrade (through the rollback
+# watchdog). See docs/releasing.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable version to repoint latest to (vN.N.N, must be archived under binaries/<version>/)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate and print the plan without mutating anything'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  panic:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Repoint latest channel
+      env:
+        VERSION: ${{ inputs.version }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        ACTOR: ${{ github.actor }}
+        S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+      run: |
+        ARGS=(--version "$VERSION" --bucket "$S3_BUCKET" --actor "$ACTOR")
+        if [ -n "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]; then
+          ARGS+=(--cloudfront-id "$CLOUDFRONT_DISTRIBUTION_ID")
+        fi
+        if [ "$DRY_RUN" = "true" ]; then
+          ARGS+=(--dry-run)
+        fi
+        scripts/release/panic.sh "${ARGS[@]}"

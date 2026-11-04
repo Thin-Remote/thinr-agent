@@ -38,8 +38,22 @@ public:
 
     std::string get_config_path() const { return config_path_; }
 
+    // Raw `update` section as stored (token left encrypted). Empty object when
+    // absent or the file is unreadable; never throws.
+    nlohmann::json read_update_section() const;
+
+    // Replace only the `update` section atomically (0600), keeping credentials
+    // and unknown keys. Throws when the config is missing or corrupt.
+    void write_update_section(const nlohmann::json& update_obj);
+
 private:
     std::string config_path_;
+
+    // Parse the config file as-is, without decrypting the token. Returns an
+    // empty object when absent; throws when present but corrupt.
+    nlohmann::json read_raw() const;
+    // Write the whole config atomically with 0600 permissions.
+    void write_raw(const nlohmann::json& config);
 
     void ensure_config_directory();
     std::string expand_path(const std::string& path);

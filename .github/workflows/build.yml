@@ -19,18 +19,35 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
+      # `version` is a checkout ref (a tag, a branch, or empty = the pushed
+      # commit). `embed_version` is the concrete version string compiled into
+      # the binary AND written into the published manifest; the two MUST match
+      # so a device can tell its running build from a freshly published one and
+      # the rollback watchdog arms on branch channels too.
       version: ${{ steps.version.outputs.version }}
+      embed_version: ${{ steps.version.outputs.embed_version }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # need tags so `git describe` resolves on branch pushes
 
     - name: Get tag version
       id : version
       run: |
         if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
           echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "embed_version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         elif [ "${{ github.event_name }}" == "pull_request" ]; then
           echo "version=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+          echo "embed_version=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+        else
+          # Branch push (main/develop): check out the pushed commit (empty ref),
+          # but embed a concrete per-commit version so the branch manifest
+          # carries a version that differs from the running one when a new
+          # commit lands, and matches it otherwise.
+          echo "version=" >> $GITHUB_OUTPUT
+          echo "embed_version=$(git describe --tags --always)" >> $GITHUB_OUTPUT
         fi
 
   build_linux:
@@ -71,7 +88,7 @@ jobs:
     - name: Configure CMake
       shell: bash
       run: |
-        cmake -B /build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_VERSION=${{ needs.build_version.outputs.version }} -DBIN_EXTENSION=ON -DARCH=${{ matrix.target }} -DSTATIC=ON
+        cmake -B /build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_VERSION=${{ needs.build_version.outputs.embed_version }} -DBIN_EXTENSION=ON -DARCH=${{ matrix.target }} -DSTATIC=ON
 
     - name: Build
       # Build your program with the given configuration
@@ -108,7 +125,7 @@ jobs:
       run: |
         cmake -B build-${{ matrix.arch }} \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DBUILD_VERSION=${{ needs.build_version.outputs.version }} \
+          -DBUILD_VERSION=${{ needs.build_version.outputs.embed_version }} \
           -DSTATIC=ON \
           -DBoost_NO_BOOST_CMAKE=ON \
           -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
@@ -173,7 +190,7 @@ jobs:
   # Upload to S3 for CDN distribution
   upload_to_s3:
     runs-on: ubuntu-latest
-    needs: [build_linux, build_macos]
+    needs: [build_version, build_linux, build_macos]
     if: ${{ github.event_name == 'push' }}
 
     steps:
@@ -182,21 +199,27 @@ jobs:
 
     - name: Determine channel
       id: channel
+      # Single shared rule (scripts/release/lib.sh): only an exact vN.N.N tag is
+      # a stable release and may touch the latest channel. A pre-release tag
+      # (-rc/-beta/-alpha/...) is archived under its own channel with
+      # is_release=false and never updates latest.json / binaries/latest/.
+      run: scripts/release/channel.sh classify "${GITHUB_REF}" | tee -a "$GITHUB_OUTPUT"
+
+    - name: Validate rollout parameters
+      id: rollout
+      # Must run before any S3 upload so invalid soak_h/ramp_h abort the job
+      # before anything is published (FR-002). Defaults 72/96, overridable with
+      # the repo variables AGENT_SOAK_H / AGENT_RAMP_H without editing this file.
+      if: ${{ steps.channel.outputs.is_release == 'true' }}
+      env:
+        SOAK_H: ${{ vars.AGENT_SOAK_H }}
+        RAMP_H: ${{ vars.AGENT_RAMP_H }}
       run: |
-        if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-          # For tag pushes, use the tag name as the channel and also duplicate to latest
-          echo "channel=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "install_script=install.sh" >> $GITHUB_OUTPUT
-          echo "is_release=true" >> $GITHUB_OUTPUT
-        elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-          echo "channel=main" >> $GITHUB_OUTPUT
-          echo "install_script=install-main.sh" >> $GITHUB_OUTPUT
-          echo "is_release=false" >> $GITHUB_OUTPUT
-        elif [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
-          echo "channel=develop" >> $GITHUB_OUTPUT
-          echo "install_script=install-develop.sh" >> $GITHUB_OUTPUT
-          echo "is_release=false" >> $GITHUB_OUTPUT
-        fi
+        SOAK_H="${SOAK_H:-72}"
+        RAMP_H="${RAMP_H:-96}"
+        scripts/release/gen-manifest.sh --check-params --soak-h "$SOAK_H" --ramp-h "$RAMP_H"
+        echo "soak_h=$SOAK_H" >> "$GITHUB_OUTPUT"
+        echo "ramp_h=$RAMP_H" >> "$GITHUB_OUTPUT"
 
     - name: Download all artifacts
       uses: actions/download-artifact@v4
@@ -232,61 +255,56 @@ jobs:
         aws s3 sync binaries/ s3://${{ secrets.S3_BUCKET }}/binaries/ --cache-control "max-age=3600"
 
     - name: Generate and upload install script
+      # Pre-releases have an empty install_script and skip this: the stable
+      # install.sh keeps pointing at the latest channel and is never clobbered.
+      if: ${{ steps.channel.outputs.install_script != '' }}
       run: |
-        # Read the base install script
         INSTALL_TEMPLATE="${{ github.workspace }}/scripts/install.sh"
-        
-        # Generate channel-specific install script
-        # For releases, install.sh points to 'latest', others point to their specific channel
+
+        # For releases, install.sh points to 'latest'; branches point to their channel.
         if [[ "${{ steps.channel.outputs.is_release }}" == "true" ]]; then
-          # For release, install.sh uses 'latest' channel
           cp "$INSTALL_TEMPLATE" ${{ steps.channel.outputs.install_script }}
         else
-          # For branches, replace default with specific channel
           sed 's/CHANNEL="${CHANNEL:-latest}"/CHANNEL="${CHANNEL:-${{ steps.channel.outputs.channel }}}"/' "$INSTALL_TEMPLATE" > ${{ steps.channel.outputs.install_script }}
         fi
-        
-        # Make it executable
+
         chmod +x ${{ steps.channel.outputs.install_script }}
-        
-        # Upload install script to S3
         aws s3 cp ${{ steps.channel.outputs.install_script }} s3://${{ secrets.S3_BUCKET }}/ --cache-control "max-age=300"
-        
-        # Generate version metadata JSON with checksums
+
+    - name: Generate and upload channel manifest
+      run: |
         CHANNEL="${{ steps.channel.outputs.channel }}"
-        VERSION="$CHANNEL"
 
-        # Generate checksums for all binaries in this channel
-        CHECKSUMS="{"
-        FIRST=true
-        for binary in binaries/$CHANNEL/thinr-agent.*; do
-          [ -f "$binary" ] || continue
-          SUFFIX="$(basename "$binary" | sed 's/^thinr-agent\.//')"
-          SHA256="$(sha256sum "$binary" | awk '{print $1}')"
-          if [ "$FIRST" = true ]; then
-            FIRST=false
-          else
-            CHECKSUMS="$CHECKSUMS,"
-          fi
-          CHECKSUMS="$CHECKSUMS\"$SUFFIX\":\"sha256:$SHA256\""
-        done
-        CHECKSUMS="$CHECKSUMS}"
+        # Stable releases carry the staged-rollout fields; branches and
+        # pre-releases impose no soak/ramp (0/0) so the current updater applies
+        # them straight away.
+        if [[ "${{ steps.channel.outputs.is_release }}" == "true" ]]; then
+          SOAK_H="${{ steps.rollout.outputs.soak_h }}"
+          RAMP_H="${{ steps.rollout.outputs.ramp_h }}"
+        else
+          SOAK_H=0
+          RAMP_H=0
+        fi
 
-        # Upload channel.json (e.g., latest.json, main.json, develop.json)
-        cat > ${CHANNEL}.json << EOJSON
-        {
-          "version": "$VERSION",
-          "checksums": $CHECKSUMS
-        }
-        EOJSON
+        # The manifest version is the exact string compiled into the binary
+        # (embed_version), NOT the channel name: on main/develop the channel is
+        # "main"/"develop" but the running binary reports a concrete per-commit
+        # version, and the agent compares the two. For a stable tag the two are
+        # identical (both the tag). published_at is taken once inside the script
+        # and reused for latest.json below.
+        scripts/release/gen-manifest.sh \
+          --binaries-dir "binaries/${CHANNEL}" \
+          --version "${{ needs.build_version.outputs.embed_version }}" \
+          --soak-h "${SOAK_H}" --ramp-h "${RAMP_H}" \
+          --out "${CHANNEL}.json"
 
-        aws s3 cp ${CHANNEL}.json s3://${{ secrets.S3_BUCKET }}/ \
+        aws s3 cp "${CHANNEL}.json" s3://${{ secrets.S3_BUCKET }}/ \
           --cache-control "max-age=60" \
           --content-type "application/json"
 
-        # For releases (tag pushes), also upload as latest.json
+        # Only a stable release promotes to the latest channel.
         if [[ "${{ steps.channel.outputs.is_release }}" == "true" ]]; then
-          cp ${CHANNEL}.json latest.json
+          cp "${CHANNEL}.json" latest.json
           aws s3 cp latest.json s3://${{ secrets.S3_BUCKET }}/ \
             --cache-control "max-age=60" \
             --content-type "application/json"
@@ -298,10 +316,13 @@ jobs:
         CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
       run: |
         paths=(
-          "/${{ steps.channel.outputs.install_script }}"
           "/binaries/${{ steps.channel.outputs.channel }}/*"
           "/${{ steps.channel.outputs.channel }}.json"
         )
+        # Only invalidate the install script when one was generated (not for pre-releases).
+        if [[ -n "${{ steps.channel.outputs.install_script }}" ]]; then
+          paths+=("/${{ steps.channel.outputs.install_script }}")
+        fi
         if [[ "${{ steps.channel.outputs.is_release }}" == "true" ]]; then
           paths+=("/binaries/latest/*" "/latest.json")
         fi

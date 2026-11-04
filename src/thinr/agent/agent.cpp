@@ -11,9 +11,21 @@
 
 namespace thinr::agent {
 
-agent::agent(const config::DeviceCredentials& credentials)
+agent::agent(const config::DeviceCredentials& credentials, std::string config_path)
     : credentials_(credentials)
 {
+    state_dir_ = config_path.empty()
+        ? thinr::extensions::updater::default_state_dir()
+        : std::filesystem::path(config_path).parent_path().string();
+
+    // Very early, before the client or any extension: resolve a pending or
+    // crash-looping update. A crash loop is reverted here; we then exit so the
+    // init system restarts into the restored previous binary.
+    if (runtime::update_watchdog::check_boot(state_dir_, AGENT_VERSION)
+            == runtime::update_watchdog::boot_outcome::reverted_exit) {
+        throw runtime::reverted_restart_required();
+    }
+
     if (!credentials_.is_valid()) {
         throw std::invalid_argument("Invalid device credentials");
     }
@@ -41,7 +53,20 @@ agent::agent(const config::DeviceCredentials& credentials)
         credentials_.device_user,
         credentials_.device_id,
         credentials_.device_token);
-    
+
+    // Own the client's single state callback before any extension subscribes.
+    state_dispatcher_.emplace(client_);
+
+    // Runtime watchdog: picks up the marker check_boot left and watches the new
+    // binary reach STREAMS_READY within the deadline (or reverts it).
+    watchdog_.emplace(client_, *state_dispatcher_, state_dir_, std::string(AGENT_VERSION));
+
+#ifndef __ANDROID__
+    // Automatic update poll loop. On Android updates arrive via the APK.
+    poller_.emplace(*state_dispatcher_, credentials_.device_id, config_path,
+                    state_dir_, std::string(AGENT_VERSION));
+#endif
+
     // Initialize all extensions by default
     nlohmann::json empty_config = {};
     init_agent_info();
@@ -75,6 +100,11 @@ void agent::start() {
 void agent::stop() {
     spdlog::info("Stopping ThinRemote agent");
 
+    // Stop the watchdog and poll loop first: joins their threads and
+    // unsubscribes while the dispatcher and client are still alive.
+    watchdog_.reset();
+    poller_.reset();
+
     // Clear extensions
     scripts_.reset();
     monitoring_.reset();
@@ -87,6 +117,9 @@ void agent::stop() {
 
     // Stop the IOTMP client: cancels timers, closes the socket and stops its workers
     client_.stop();
+
+    // Detach the state dispatcher now that no more callbacks can fire.
+    state_dispatcher_.reset();
 }
 
 void agent::wait() {
@@ -180,6 +213,8 @@ void agent::init_property_streams() {
         auto& payload = in.payload();
         if (payload.is_null() || !payload.is_object()) {
             spdlog::debug("Config property is empty, using defaults");
+            // An empty config clears any remote policy override (back to local).
+            if (poller_.has_value()) poller_->set_remote_policy(std::nullopt);
             return;
         }
         spdlog::info("Received remote config update");
@@ -206,6 +241,26 @@ void agent::apply_config(const nlohmann::json& config) {
         }
     }
 
+    // Update policy override. The cloud may only set `update.policy`, and it can
+    // never disable the updater or the watchdog (they are unconditional). An
+    // absent `update` key clears the override (back to local); a malformed one
+    // or an invalid policy leaves the current override untouched.
+    if (poller_.has_value()) {
+        if (!config.contains("update")) {
+            poller_->set_remote_policy(std::nullopt);
+        } else if (config["update"].is_object() &&
+                   config["update"].contains("policy") &&
+                   config["update"]["policy"].is_string()) {
+            auto p = thinr::update::policy_from_string(config["update"]["policy"].get<std::string>());
+            if (p) {
+                poller_->set_remote_policy(p);
+            } else {
+                spdlog::warn("Ignoring invalid remote update.policy");
+            }
+        } else {
+            spdlog::warn("Ignoring malformed remote update section");
+        }
+    }
 }
 
 } // namespace thinr::agent
