@@ -33,11 +33,14 @@ jobs:
       run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
     - name: Determine if pre-release
+      # Single shared rule (scripts/release/lib.sh): stable iff the tag matches
+      # exactly vN.N.N. Keeps this job and the publication job (build.yml) from
+      # disagreeing about what is a pre-release.
       run: |
-        if [[ "${{ env.TAG_NAME }}" == *"-alpha"* ]] || [[ "${{ env.TAG_NAME }}" == *"-beta"* ]] || [[ "${{ env.TAG_NAME }}" == *"-rc"* ]]; then
-          echo "PRERELEASE=true" >> $GITHUB_ENV
-        else
+        if scripts/release/channel.sh is-stable "${TAG_NAME}"; then
           echo "PRERELEASE=false" >> $GITHUB_ENV
+        else
+          echo "PRERELEASE=true" >> $GITHUB_ENV
         fi
 
     - name: Get changelog for this version

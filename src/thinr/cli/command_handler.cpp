@@ -5,6 +5,7 @@
 #include "../installer/interactive_setup.hpp"
 #include "../installer/service_installer.hpp"
 #include "../extensions/updater.hpp"
+#include "../update/update_settings.hpp"
 #include "../agent/agent.hpp"
 #include <iostream>
 #include <unistd.h>
@@ -137,8 +138,16 @@ int command_handler::handle_install(const InstallOptions& options) {
         return 1;
     }
     
-    // Store verify_ssl preference for use in save_and_install_service
+    // Validate the update policy before provisioning anything.
+    if (!options.update_policy.empty() && !thinr::update::policy_from_string(options.update_policy)) {
+        std::cout << utils::Console::error("Invalid --update-policy '" + options.update_policy +
+                                           "'. Use 'auto' or 'managed'.") << "\n";
+        return 1;
+    }
+
+    // Store preferences for use in save_and_install_service
     verify_ssl_ = !options.no_verify_ssl;
+    update_policy_ = options.update_policy;
 
     bool success;
     if (!options.token.empty()) {
@@ -286,6 +295,24 @@ bool command_handler::save_and_install_service(const config::DeviceCredentials& 
     config_manager_.save(final_credentials);
     std::string config_path = config_manager_.get_config_path();
     std::cout << utils::Console::success("Configuration saved: " + config_path) << "\n";
+
+    // Record the update policy. An explicit --update-policy wins (local_explicit);
+    // a fresh install without it writes explicit defaults (auto); a reinstall
+    // without it keeps whatever was there (save() already preserved the section).
+    {
+        namespace up = thinr::update;
+        auto existing_raw = config_manager_.read_update_section();
+        auto settings = up::update_settings::from_json(existing_raw);
+        if (!update_policy_.empty()) {
+            if (auto p = up::policy_from_string(update_policy_)) {
+                settings.policy = *p;
+                settings.source = up::policy_source::local_explicit;
+                config_manager_.write_update_section(settings.to_json());
+            }
+        } else if (existing_raw.empty()) {
+            config_manager_.write_update_section(settings.to_json());
+        }
+    }
 
 #ifdef __ANDROID__
     // The app's Foreground Service owns the agent lifecycle on Android;
@@ -481,9 +508,49 @@ int command_handler::handle_test() {
 
 int command_handler::handle_update(const UpdateOptions& options) {
     using extensions::updater;
+    namespace up = thinr::update;
 
-    auto action = options.apply ? updater::action::apply : updater::action::check;
-    auto result = updater::run(action, options.channel);
+    // Policy / channel change: persist it locally and exit (does not also swap
+    // the binary). This is the opt-out / opt-in path.
+    if (!options.policy.empty()) {
+        auto p = up::policy_from_string(options.policy);
+        if (!p) {
+            std::cout << utils::Console::error("Invalid --policy '" + options.policy +
+                                               "'. Use 'auto' or 'managed'.") << "\n";
+            return 1;
+        }
+        if (!options.channel.empty() && !up::valid_channel(options.channel)) {
+            std::cout << utils::Console::error("Invalid --channel '" + options.channel + "'.") << "\n";
+            return 1;
+        }
+        if (!config_manager_.exists()) {
+            std::cout << utils::Console::error("No configuration found; install the agent first.") << "\n";
+            return 1;
+        }
+        auto settings = up::update_settings::from_json(config_manager_.read_update_section());
+        settings.policy = *p;
+        settings.source = up::policy_source::local_explicit;
+        if (!options.channel.empty()) settings.channel = options.channel;
+        try {
+            config_manager_.write_update_section(settings.to_json());
+        } catch (const std::exception& e) {
+            std::cout << utils::Console::error(std::string("Failed to save update policy: ") + e.what()) << "\n";
+            return 1;
+        }
+        std::cout << utils::Console::success("Update policy set to " + up::to_string(settings.policy) +
+                                             " (channel " + settings.channel + ").") << "\n";
+        return 0;
+    }
+
+    // No action flags: show the effective local policy and channel.
+    if (!options.apply && !options.now && config_manager_.exists()) {
+        auto s = up::update_settings::from_json(config_manager_.read_update_section());
+        std::cout << utils::Console::cyan("Update policy:   ") << up::to_string(s.policy) << "\n";
+        std::cout << utils::Console::cyan("Update channel:  ") << s.channel << "\n";
+    }
+
+    auto action = (options.apply || options.now) ? updater::action::apply : updater::action::check;
+    auto result = updater::run(action, options.channel, updater::update_origin::cli);
 
     std::cout << utils::Console::cyan("Current version: ") << result.current << "\n";
     std::cout << utils::Console::cyan("Architecture:    ") << result.arch << "\n";
@@ -570,14 +637,27 @@ int command_handler::handle_reconfigure() {
         return 1;
     }
     
-    // Remove existing config and start interactive setup
+    // Preserve the update policy across a reconfigure: it is not part of the
+    // interactive setup, and dropping it would silently flip an explicit
+    // `managed` opt-out back to auto.
+    nlohmann::json saved_update;
     if (config_manager_.exists()) {
+        saved_update = config_manager_.read_update_section();
         config_manager_.remove();
         std::cout << "Existing configuration removed.\n";
     }
-    
+
     installer::interactive_setup setup;
-    return setup.run() ? 0 : 1;
+    bool ok = setup.run();
+
+    if (ok && !saved_update.empty() && config_manager_.exists()) {
+        try {
+            config_manager_.write_update_section(saved_update);
+        } catch (const std::exception& e) {
+            spdlog::warn("Could not restore update policy after reconfigure: {}", e.what());
+        }
+    }
+    return ok ? 0 : 1;
 }
 
 int command_handler::handle_no_command(const std::string& config_path) {
@@ -604,9 +684,12 @@ int command_handler::handle_no_command(const std::string& config_path) {
         spdlog::info("Configuration found, starting agent mode");
         try {
             auto credentials = config_manager_.load();
-            agent::agent agent(credentials);
+            agent::agent agent(credentials, config_manager_.get_config_path());
             agent.start();
             agent.wait();
+        } catch (const runtime::reverted_restart_required& e) {
+            spdlog::warn("{}", e.what());
+            return 1;
         } catch (const std::exception& e) {
             spdlog::error("Failed to start agent: {}", e.what());
             return 1;
@@ -750,9 +833,12 @@ int command_handler::handle_no_configuration_but_run(const std::string& config_p
     spdlog::info("Starting agent mode");
     try {
         auto credentials = config_manager_.load();
-        agent::agent agent(credentials);
+        agent::agent agent(credentials, config_manager_.get_config_path());
         agent.start();
         agent.wait();
+    } catch (const runtime::reverted_restart_required& e) {
+        spdlog::warn("{}", e.what());
+        return 1;
     } catch (const std::exception& e) {
         spdlog::error("Failed to start agent: {}", e.what());
         return 1;

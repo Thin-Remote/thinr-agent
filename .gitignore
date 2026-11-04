@@ -21,6 +21,8 @@ plan.md
 # Local dev & deploy scripts (keep only the tracked installer)
 /scripts/*
 !/scripts/install.sh
+# Release/publication tooling is used by the CI workflows, so it ships in the repo
+!/scripts/release/
 
 # Kernel test playground (big local binaries)
 /kernel-test/

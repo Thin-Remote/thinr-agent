@@ -1,6 +1,28 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - Unreleased
+
+### Added
+- Staged rollout for the stable channel: stable release manifests now carry
+  `published_at`, `soak_h` and `ramp_h` so a single publication drives an
+  autonomous time-based ramp (defaults 72h soak / 96h ramp, overridable with the
+  `AGENT_SOAK_H` / `AGENT_RAMP_H` repository variables)
+- Panic rollback action (`Panic rollback` workflow, `scripts/release/panic.sh`):
+  re-points `latest` at a previously archived stable release, including
+  downgrades, with pre-flight validation and binary/checksum coherence
+- Freeze/unfreeze action (`Freeze rollout` workflow, `scripts/release/freeze.sh`):
+  sets or clears the optional `frozen_at` field on `latest.json`, idempotent
+- Reusable release scripts under `scripts/release/` runnable locally without AWS
+  (`--cdn-dir`/`--dry-run`) and the operational guide `docs/releasing.md`
+
+### Changed
+- Pre-release tags (`-rc`/`-beta`/`-alpha`/any suffix) are now built and archived
+  under their own channel only, and no longer update `latest.json`,
+  `binaries/latest/` or `install.sh`
+- The stable-versus-pre-release rule (tag matches exactly `vN.N.N`) is defined
+  once in `scripts/release/lib.sh` and shared by `build.yml` and `release.yml`
+
 ## [1.1.0] - 2026-02-25
 
 ### Added

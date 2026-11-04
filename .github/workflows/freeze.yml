@@ -1,0 +1,51 @@
+name: Freeze rollout
+
+# Manual freeze/unfreeze of the in-progress staged rollout: sets or removes
+# frozen_at in latest.json without changing version, checksums or binaries.
+# A less drastic alternative to the panic rollback. See docs/releasing.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Freeze or unfreeze the current latest ramp'
+        required: true
+        type: choice
+        options:
+          - freeze
+          - unfreeze
+      dry_run:
+        description: 'Validate and print the plan without mutating anything'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Set/clear frozen_at on latest
+      env:
+        ACTION: ${{ inputs.action }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+      run: |
+        ARGS=("--${ACTION}" --bucket "$S3_BUCKET")
+        if [ -n "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]; then
+          ARGS+=(--cloudfront-id "$CLOUDFRONT_DISTRIBUTION_ID")
+        fi
+        if [ "$DRY_RUN" = "true" ]; then
+          ARGS+=(--dry-run)
+        fi
+        scripts/release/freeze.sh "${ARGS[@]}"

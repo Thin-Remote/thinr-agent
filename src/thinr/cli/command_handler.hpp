@@ -33,6 +33,7 @@ private:
     auth::auth_manager auth_manager_;
     installer::service_installer service_installer_;
     bool verify_ssl_ = true;
+    std::string update_policy_;  // from install --update-policy ("" = default auto)
 
     // Install helpers
     bool install_with_token(const InstallOptions& options);
