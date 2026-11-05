@@ -40,6 +40,31 @@ always carry `soak_h=0`/`ramp_h=0`, so the current updater applies them without
 any delay and older agents (which read only `version` and `checksums`) ignore
 the extra fields.
 
+## Release policy: validate on a few machines before the fleet
+
+Every new version is proven on a small set of representative machines before it
+is opened to the fleet. "Representative" means a spread of architectures and, in
+particular, at least one old-kernel host (the fleet still runs many Ubuntu 18.04
+boxes); a startup regression tends to be arch- or kernel-specific.
+
+How "opening to the fleet" works depends on the installed agent:
+
+- Agents older than v1.8.0 do not poll for updates. They change version only
+  when an update is triggered for them (a playbook, the console, or the CLI), so
+  publishing a new `latest` does not move them on its own. Roll out by first
+  installing the new version on a few canary hosts, confirming they reconnect and
+  run clean, and only then triggering the update across the rest.
+- Agents on v1.8.0+ with policy `auto` poll and apply on their own, gated by the
+  staged rollout (`soak_h`/`ramp_h`). The soak is the built-in quiet period, but
+  it does not replace the canary: validate the build on a representative set
+  first (install it ahead of the ramp, or carry it on a faster channel), then
+  publish the stable tag so the ramp exposes the rest gradually.
+
+Keep critical infrastructure on policy `managed` (manual updates only) so it
+never rides an automatic rollout unattended.
+
+Do not tag a stable `vN.N.N` until the canary set has been validated.
+
 ## Publishing a stable release
 
 Push a tag matching exactly `vN.N.N` (no suffix). `build.yml` builds the matrix,
