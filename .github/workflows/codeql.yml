@@ -28,11 +28,11 @@ jobs:
           sudo apt install -y gcc-14 g++-14 libarchive-tools libarchive-dev
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
 
-      - name: Install Boost 1.86.0
+      - name: Install Boost 1.90.0
         id: install-boost
         uses: MarkusJx/install-boost@v2.5.0
         with:
-          boost_version: 1.86.0
+          boost_version: 1.90.0
           platform_version: 22.04
           toolset: gcc
 
@@ -58,4 +58,25 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
+          category: "/language:c-cpp"
+          upload: false
+          output: sarif-results
+
+      # The traced C/C++ build extracts third-party headers (Boost, FetchContent
+      # deps under build/_deps), so their findings land in the results. Path
+      # filters in the config do not remove them from a traced build, so keep
+      # only first-party code (src/thinr/**) before uploading.
+      - name: Keep only first-party code in results
+        uses: advanced-security/filter-sarif@v1.1
+        with:
+          patterns: |
+            -**/*
+            +src/thinr/**/*
+          input: sarif-results/cpp.sarif
+          output: sarif-results/cpp.sarif
+
+      - name: Upload filtered results
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sarif-results/cpp.sarif
           category: "/language:c-cpp"
