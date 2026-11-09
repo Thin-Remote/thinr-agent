@@ -1,5 +1,10 @@
 name: "ThinR Agent CodeQL config"
 
+# These path filters only take effect for a buildless analysis (build-mode:
+# none). This workflow uses a traced build (build-mode: manual), where CodeQL
+# analyses every compiled file including third-party headers, so the effective
+# first-party filtering happens after analysis via advanced-security/filter-sarif
+# in codeql.yml. The filters are kept here for the buildless case and as intent.
 paths:
   - src/**
 
