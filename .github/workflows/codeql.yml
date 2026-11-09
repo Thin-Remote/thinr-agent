@@ -62,6 +62,14 @@ jobs:
           upload: false
           output: sarif-results
 
+      - name: Upload raw SARIF (diagnostic)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-cpp-sarif
+          path: sarif-results/cpp.sarif
+          if-no-files-found: warn
+
       # The traced C/C++ build extracts third-party headers (Boost, FetchContent
       # deps under build/_deps), so their findings land in the results. Path
       # filters in the config do not remove them from a traced build, so keep

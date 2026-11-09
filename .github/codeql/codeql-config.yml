@@ -1,14 +1,8 @@
 name: "ThinR Agent CodeQL config"
 
-# These path filters only take effect for a buildless analysis (build-mode:
-# none). This workflow uses a traced build (build-mode: manual), where CodeQL
-# analyses every compiled file including third-party headers, so the effective
-# first-party filtering happens after analysis via advanced-security/filter-sarif
-# in codeql.yml. The filters are kept here for the buildless case and as intent.
-paths:
-  - src/**
-
-paths-ignore:
-  - boost/**
-  - build/**
-  - '**/_deps/**'
+# No `paths` / `paths-ignore` here on purpose. This workflow uses a traced build
+# (build-mode: manual). A `paths` entry there expands to an `exclude:**/*`
+# extraction filter whose companion `include:` is not honoured for compiled
+# languages, which drops every result. Third-party code (Boost, FetchContent
+# deps) is removed from the results after analysis by advanced-security/filter-sarif
+# in codeql.yml, which filters the SARIF regardless of build mode.
