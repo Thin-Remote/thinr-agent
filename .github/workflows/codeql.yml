@@ -71,7 +71,7 @@ jobs:
         with:
           patterns: |
             -**/*
-            +src/thinr/**
+            +src/thinr/**/*
           input: sarif-results/cpp.sarif
           output: sarif-results/cpp.sarif
 
